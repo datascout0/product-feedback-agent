@@ -1,0 +1,170 @@
+# Product Feedback Agent — Implementation Checklist
+
+Last updated: 2026-09-02
+
+## Project Foundation
+
+- [x] Create local project directory
+- [x] Initialise Git repository
+- [x] Configure `main` branch
+- [x] Create private GitHub repository
+- [x] Configure and verify `origin`
+- [x] Create README
+- [x] Create `.gitignore`
+- [x] Create `.env.example`
+- [x] Create decision log
+
+## Product Decisions
+
+- [x] Confirm 3-day MVP with optional Day 4
+- [x] Rename project to Product Feedback Agent
+- [x] Preserve human roadmap-decision boundary
+- [x] Add Evidence-Backed Opportunity Tree concept
+- [x] Lock bounded analyst → validator → critic → optional revision architecture
+
+## Runtime Model
+
+- [x] Select `gemini-3.7-flash`
+- [x] Verify active project quota in Google AI Studio
+- [x] Record RPM: 5
+- [x] Record TPM: 250,000 input tokens/minute
+- [x] Record RPD: 20
+- [x] Set maximum passing run to 2 Gemini requests
+- [x] Set maximum revision run to 3 Gemini requests
+- [x] Set minimum sequential spacing to 14 seconds
+
+## Python Foundation
+
+- [x] Create Python 3.12 virtual environment
+- [x] Create `src/product_feedback_agent`
+- [x] Create `tests`
+- [x] Create `data/samples`
+- [x] Create `pyproject.toml`
+- [x] Install Pydantic
+- [x] Install pytest
+- [x] Implement `FeedbackInput`
+- [x] Implement `FeedbackRecord`
+- [x] Add schema validation tests
+- [x] Pass all 7 schema tests
+
+## Feedback Ingestion
+
+- [ ] Implement CSV loading
+- [ ] Implement JSON loading
+- [ ] Validate required fields
+- [ ] Generate stable IDs when missing
+- [ ] Preserve original feedback text
+- [ ] Normalise source names
+- [ ] Normalise dates
+- [ ] Preserve optional metadata
+- [ ] Remove exact duplicates deterministically
+- [ ] Flag likely semantic duplicates without automatic deletion
+- [ ] Report invalid records safely
+- [ ] Enforce reasonable V1 dataset-size limit
+- [ ] Add ingestion tests
+
+## Product Context
+
+- [ ] Define product-context schema
+- [ ] Ingest Markdown/text product-context documents
+- [ ] Preserve stable document IDs
+- [ ] Preserve stable section IDs
+- [ ] Add product-context tests
+
+## Embeddings and Retrieval
+
+- [ ] Select local embedding model
+- [ ] Implement feedback embeddings
+- [ ] Implement product-context embeddings
+- [ ] Configure local vector store
+- [ ] Implement semantic feedback search
+- [ ] Implement product-context retrieval
+- [ ] Implement diversity sampling
+- [ ] Implement deterministic dataset statistics
+- [ ] Implement cached analysis-context packet
+
+## MCP
+
+- [ ] Implement `prepare_analysis_context`
+- [ ] Implement `search_feedback`
+- [ ] Implement `create_opportunity_issue`
+- [ ] Validate MCP tools with Inspector
+- [ ] Validate MCP server with Claude Code
+- [ ] Save known-good context-packet fixtures
+
+## Analyst and Opportunity Model
+
+- [ ] Define opportunity-card schema
+- [ ] Add Evidence-Backed Opportunity Tree structure
+- [ ] Write Gemini analyst prompt
+- [ ] Produce exactly 3 opportunity candidates
+- [ ] Distinguish requested solutions from underlying needs
+- [ ] Require evidence citations
+- [ ] Add clarification-question logic
+
+## Validation and Scoring
+
+- [ ] Validate opportunity schema deterministically
+- [ ] Reject nonexistent feedback IDs
+- [ ] Verify exact quotations
+- [ ] Recompute evidence counts locally
+- [ ] Implement transparent opportunity scoring
+- [ ] Keep roadmap coverage separate from score
+
+## Critic Workflow
+
+- [ ] Write Gemini critic prompt
+- [ ] Validate evidence support
+- [ ] Detect duplicate opportunities
+- [ ] Check contradictory evidence
+- [ ] Check unsupported segment claims
+- [ ] Check roadmap/context citations
+- [ ] Implement conditional single revision
+- [ ] Demonstrate one seeded revision case
+
+## n8n
+
+- [ ] Build intake form
+- [ ] Connect Python ingestion
+- [ ] Call one batched analysis-context operation
+- [ ] Add Gemini analyst
+- [ ] Add deterministic validator
+- [ ] Add Gemini critic
+- [ ] Add conditional revision
+- [ ] Display structured results
+- [ ] Add human approval
+- [ ] Export final workflow JSON
+
+## GitHub REST Action
+
+- [ ] Implement dry-run opportunity issue creation
+- [ ] Require explicit approval
+- [ ] Restrict to allow-listed demo repository
+- [ ] Add duplicate-action prevention
+- [ ] Create one approved real GitHub issue
+- [ ] Demonstrate that an unapproved action is blocked
+
+## Evaluation
+
+- [ ] Create labelled feedback gold set
+- [ ] Define expected opportunity themes
+- [ ] Create retrieval evaluation queries
+- [ ] Measure Recall@5
+- [ ] Measure citation correctness
+- [ ] Measure exact-quote correctness
+- [ ] Record unsupported claims
+- [ ] Test prompt injection
+- [ ] Test empty retrieval behavior
+- [ ] Test action safety
+- [ ] Record latency and Gemini request counts
+- [ ] Run secondary-domain dataset
+
+## Portfolio Assets
+
+- [ ] Complete README
+- [ ] Complete architecture documentation
+- [ ] Complete evaluation documentation
+- [ ] Capture screenshots
+- [ ] Record 60–90 second demo
+- [ ] Create evidence-based CV bullets
+- [ ] Document limitations
