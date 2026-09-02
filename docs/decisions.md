@@ -37,3 +37,23 @@ Product Objective
 **Decision:** Use one bounded analyst → deterministic validator → critic → optional single revision workflow.
 
 **Rationale:** Keep reasoning inspectable, rate-limit-aware, measurable, and governed.
+
+---
+
+## D005 — Runtime model and Gemini quota
+
+**Runtime model:** `gemini-3.7-flash`
+
+**Active project limits recorded 2026-09-02:**
+- RPM: 5
+- TPM: 250,000 input tokens
+- RPD: 20
+
+**Workflow budget:**
+- Passing run: 2 Gemini requests maximum
+- Revision run: 3 Gemini requests maximum
+- Minimum sequential request spacing: 14 seconds
+
+**Development rule:** Reuse cached evidence packets and saved model responses when debugging non-LLM parts of the workflow.
+
+**Rationale:** The project-specific RPD limit is restrictive, so model requests must be reserved for analyst/critic behaviour rather than routine development testing.
