@@ -1,4 +1,4 @@
-# Product Feedback Agent Ã¢â‚¬â€ Implementation Checklist
+# Product Feedback Agent ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Implementation Checklist
 
 Last updated: 2026-09-02
 
@@ -20,7 +20,7 @@ Last updated: 2026-09-02
 - [x] Rename project to Product Feedback Agent
 - [x] Preserve human roadmap-decision boundary
 - [x] Add Evidence-Backed Opportunity Tree concept
-- [x] Lock bounded analyst Ã¢â€ â€™ validator Ã¢â€ â€™ critic Ã¢â€ â€™ optional revision architecture
+- [x] Lock bounded analyst ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ validator ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ critic ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ optional revision architecture
 
 ## Runtime Model
 
@@ -73,12 +73,12 @@ Last updated: 2026-09-02
 
 ## Embeddings and Retrieval
 
-- [ ] Select local embedding model
-- [ ] Implement feedback embeddings
-- [ ] Implement product-context embeddings
-- [ ] Configure local vector store
-- [ ] Implement semantic feedback search
-- [ ] Implement product-context retrieval
+- [x] Select local embedding model
+- [x] Implement feedback embeddings
+- [x] Implement product-context embeddings
+- [x] Configure local vector store
+- [x] Implement semantic feedback search
+- [x] Implement product-context retrieval
 - [ ] Implement diversity sampling
 - [ ] Implement deterministic dataset statistics
 - [ ] Implement cached analysis-context packet
@@ -165,6 +165,6 @@ Last updated: 2026-09-02
 - [ ] Complete architecture documentation
 - [ ] Complete evaluation documentation
 - [ ] Capture screenshots
-- [ ] Record 60Ã¢â‚¬â€œ90 second demo
+- [ ] Record 60ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“90 second demo
 - [ ] Create evidence-based CV bullets
 - [ ] Document limitations

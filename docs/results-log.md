@@ -288,3 +288,84 @@ Breakdown:
 - 7 schema tests passed
 - 0 failures
 - 0 errors
+---
+
+## 2026-09-07 — Local Embeddings and Semantic Retrieval
+
+### Dependencies
+
+Verified:
+
+- sentence-transformers: 5.7.0
+- chromadb: 1.5.9
+
+### Implementation
+
+Implemented:
+
+- local Sentence Transformers embedding wrapper
+- model: `sentence-transformers/all-MiniLM-L6-v2`
+- lazy model loading
+- normalized embeddings
+- persistent Chroma storage
+- separate `feedback` and `product_context` collections
+- cosine-distance retrieval
+- feedback indexing using stable feedback IDs
+- context indexing using stable section IDs
+- semantic feedback search
+- semantic product-context search
+- metadata preservation
+- idempotent upsert behavior
+- injectable fake embedder for fast/offline tests
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -v`
+
+Result:
+
+**55 / 55 tests passed**
+
+### Real Embedding Smoke Test
+
+The real `all-MiniLM-L6-v2` model successfully loaded locally.
+
+Embedding dimensions:
+
+**384**
+
+Feedback query:
+
+`users need better search filtering`
+
+Top semantic results included:
+
+`Search results are hard to filter.`
+
+Product-context query:
+
+`onboarding and setup strategy`
+
+Returned context results containing stable:
+
+- `document_id`
+- `section_id`
+- section heading metadata
+
+The smoke test completed successfully using persistent local Chroma storage.
+
+### Observed Windows Behavior
+
+A previous smoke test using Python `TemporaryDirectory` produced a Windows file-lock cleanup error after successful retrieval because Chroma still held an HNSW file handle.
+
+The product implementation was not changed for this test-harness issue. The successful smoke test instead used the ignored local path:
+
+`data/local/chroma-smoke`
+
+### External Model Download
+
+The public Sentence Transformers model was downloaded from Hugging Face without authentication.
+
+The HF cache emitted a Windows symlink optimization warning, but model loading and inference completed successfully.
