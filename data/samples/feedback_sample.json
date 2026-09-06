@@ -1,0 +1,31 @@
+[
+  {
+    "text": "Onboarding checklist doesn't mention SSO setup.",
+    "source": "Customer Interview",
+    "product_area": "onboarding",
+    "segment": "enterprise",
+    "date": "2026-08-18",
+    "customer_id": "CUST-010",
+    "rating": 4,
+    "metadata": {"interviewer": "pm-team"},
+    "channel": "zoom"
+  },
+  {
+    "feedback_id": "FB-200",
+    "text": "Billing page shows wrong currency for EU customers.",
+    "source": "support-ticket",
+    "customer_id": "CUST-011",
+    "metadata": {"priority": "high"}
+  },
+  {
+    "text": "Onboarding checklist doesn't mention SSO setup.",
+    "source": "Customer Interview",
+    "product_area": "onboarding",
+    "segment": "enterprise",
+    "date": "2026-08-18",
+    "customer_id": "CUST-012",
+    "rating": 4,
+    "metadata": {"interviewer": "pm-team"},
+    "channel": "zoom"
+  }
+]

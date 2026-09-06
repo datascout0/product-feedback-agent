@@ -1,4 +1,4 @@
-# Product Feedback Agent — Implementation Checklist
+# Product Feedback Agent â€” Implementation Checklist
 
 Last updated: 2026-09-02
 
@@ -20,7 +20,7 @@ Last updated: 2026-09-02
 - [x] Rename project to Product Feedback Agent
 - [x] Preserve human roadmap-decision boundary
 - [x] Add Evidence-Backed Opportunity Tree concept
-- [x] Lock bounded analyst → validator → critic → optional revision architecture
+- [x] Lock bounded analyst â†’ validator â†’ critic â†’ optional revision architecture
 
 ## Runtime Model
 
@@ -49,19 +49,19 @@ Last updated: 2026-09-02
 
 ## Feedback Ingestion
 
-- [ ] Implement CSV loading
-- [ ] Implement JSON loading
-- [ ] Validate required fields
-- [ ] Generate stable IDs when missing
-- [ ] Preserve original feedback text
-- [ ] Normalise source names
-- [ ] Normalise dates
-- [ ] Preserve optional metadata
-- [ ] Remove exact duplicates deterministically
+- [x] Implement CSV loading
+- [x] Implement JSON loading
+- [x] Validate required fields
+- [x] Generate stable IDs when missing
+- [x] Preserve original feedback text
+- [x] Normalise source names
+- [x] Normalise dates
+- [x] Preserve optional metadata
+- [x] Remove exact duplicates deterministically
 - [ ] Flag likely semantic duplicates without automatic deletion
-- [ ] Report invalid records safely
-- [ ] Enforce reasonable V1 dataset-size limit
-- [ ] Add ingestion tests
+- [x] Report invalid records safely
+- [x] Enforce reasonable V1 dataset-size limit
+- [x] Add ingestion tests
 
 ## Product Context
 
@@ -165,6 +165,6 @@ Last updated: 2026-09-02
 - [ ] Complete architecture documentation
 - [ ] Complete evaluation documentation
 - [ ] Capture screenshots
-- [ ] Record 60–90 second demo
+- [ ] Record 60â€“90 second demo
 - [ ] Create evidence-based CV bullets
 - [ ] Document limitations

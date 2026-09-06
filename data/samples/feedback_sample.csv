@@ -1,0 +1,8 @@
+feedback_id,text,source,product_area,segment,date,customer_id,rating,metadata,ticket_url
+FB-100,Exporting reports to CSV takes too many clicks.,In-App Survey,reporting,enterprise,2026-08-20,CUST-001,3,,https://support.example.com/1001
+,The mobile app crashes when I upload a photo.,app-store-review,mobile,,,CUST-002,,"{""os"": ""iOS 18""}",
+,Search results are hard to filter.,Support Ticket,,smb,2026-08-22,CUST-003,2,,
+,Search results are hard to filter.,Support Ticket,,smb,2026-08-22,CUST-003,2,,
+,Search results are hard to filter.,Support Ticket,,smb,2026-08-22,CUST-004,2,,
+,Notifications arrive twice for the same event.,Zendesk - Chat,notifications,,2026-08-25,CUST-005,,,
+,,email,,,,CUST-006,,,

@@ -169,3 +169,74 @@ Feedback ingestion tests:
 - Exact duplicate removal
 - Invalid-record handling
 - Source normalization
+---
+
+## 2026-09-06 — Feedback Ingestion
+
+### Implementation
+
+Implemented feedback ingestion using Python standard-library CSV/JSON handling, existing Pydantic schemas, and deterministic SHA-256 identifiers.
+
+Implemented:
+
+- UTF-8 CSV ingestion
+- UTF-8 JSON array ingestion
+- Required-field validation
+- Stable deterministic ID generation when source IDs are missing
+- Preservation and trimming of supplied feedback IDs
+- Original customer-text preservation
+- Source-name normalization
+- Date validation/normalization through the feedback schema
+- Optional metadata preservation
+- Unknown-field merging into metadata
+- CSV metadata JSON-object parsing
+- Exact duplicate removal
+- Invalid-record collection without failing the complete dataset
+- Clear whole-file failures for unsupported extensions and malformed JSON
+- 200-record MVP input limit
+
+### Evidence-integrity correction
+
+Initial duplicate handling excluded `feedback_id` from the duplicate key.
+
+This could have collapsed two otherwise identical source records carrying different supplied IDs into one evidence item.
+
+The duplicate rule was corrected so the complete normalized record identity is considered.
+
+Regression coverage verifies:
+
+- Identical generated records are deduplicated.
+- Identical records with the same supplied ID are deduplicated.
+- Otherwise identical records with different supplied IDs are preserved.
+- Identical feedback text from different customers is preserved.
+
+### Claude Code
+
+The ingestion implementation and regression correction were developed using Claude Code with the `sonnet` model alias.
+
+No additional packages were installed and no LLM/API calls were made by the Product Feedback Agent runtime.
+
+### Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -v`
+
+Result:
+
+**23 / 23 tests passed**
+
+Execution time:
+
+**0.24 seconds**
+
+Breakdown:
+
+- 16 ingestion tests passed
+- 7 schema tests passed
+- 0 failures
+- 0 errors
+
+### Deferred
+
+Semantic duplicate detection has not yet been implemented and remains a later milestone.
