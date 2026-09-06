@@ -59,3 +59,22 @@ class FeedbackRecord(FeedbackInput):
         if not value:
             raise ValueError("feedback_id must not be empty")
         return value
+
+
+class ContextSection(BaseModel):
+    """One coherent section of a product-context document, kept verbatim for citation."""
+
+    section_id: str
+    document_id: str
+    heading: str | None = None
+    text: str
+    section_index: int
+
+
+class ContextDocument(BaseModel):
+    """A parsed product-context document (strategy, roadmap, personas, etc.)."""
+
+    document_id: str
+    filename: str
+    document_type: str
+    sections: list[ContextSection] = Field(default_factory=list)

@@ -240,3 +240,51 @@ Breakdown:
 ### Deferred
 
 Semantic duplicate detection has not yet been implemented and remains a later milestone.
+---
+
+## 2026-09-06 — Product Context Ingestion
+
+### Implementation
+
+Implemented product-context ingestion for UTF-8 Markdown and plain-text documents.
+
+Implemented:
+
+- `.md` and `.txt` support
+- deterministic document IDs
+- deterministic section IDs
+- Markdown heading-based section splitting
+- pre-heading Markdown content preservation
+- document-type inference for strategy, roadmap, personas, features and research notes
+- fallback document type of `context`
+- empty-document rejection
+- unsupported-extension rejection
+- exact source-text preservation for later citations
+
+### Citation-integrity correction
+
+The initial implementation used `.strip()` when storing section text.
+
+This was corrected so `.strip()` is used only to determine whether content is empty. Stored section text now preserves the original source content exactly, including leading/trailing whitespace and newlines where applicable.
+
+### Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -v`
+
+Result:
+
+**36 / 36 tests passed**
+
+Execution time:
+
+**0.29 seconds**
+
+Breakdown:
+
+- 13 product-context tests passed
+- 16 feedback-ingestion tests passed
+- 7 schema tests passed
+- 0 failures
+- 0 errors

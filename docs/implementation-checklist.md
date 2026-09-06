@@ -1,4 +1,4 @@
-# Product Feedback Agent â€” Implementation Checklist
+# Product Feedback Agent Ã¢â‚¬â€ Implementation Checklist
 
 Last updated: 2026-09-02
 
@@ -20,7 +20,7 @@ Last updated: 2026-09-02
 - [x] Rename project to Product Feedback Agent
 - [x] Preserve human roadmap-decision boundary
 - [x] Add Evidence-Backed Opportunity Tree concept
-- [x] Lock bounded analyst â†’ validator â†’ critic â†’ optional revision architecture
+- [x] Lock bounded analyst Ã¢â€ â€™ validator Ã¢â€ â€™ critic Ã¢â€ â€™ optional revision architecture
 
 ## Runtime Model
 
@@ -65,11 +65,11 @@ Last updated: 2026-09-02
 
 ## Product Context
 
-- [ ] Define product-context schema
-- [ ] Ingest Markdown/text product-context documents
-- [ ] Preserve stable document IDs
-- [ ] Preserve stable section IDs
-- [ ] Add product-context tests
+- [x] Define product-context schema
+- [x] Ingest Markdown/text product-context documents
+- [x] Preserve stable document IDs
+- [x] Preserve stable section IDs
+- [x] Add product-context tests
 
 ## Embeddings and Retrieval
 
@@ -165,6 +165,6 @@ Last updated: 2026-09-02
 - [ ] Complete architecture documentation
 - [ ] Complete evaluation documentation
 - [ ] Capture screenshots
-- [ ] Record 60â€“90 second demo
+- [ ] Record 60Ã¢â‚¬â€œ90 second demo
 - [ ] Create evidence-based CV bullets
 - [ ] Document limitations
