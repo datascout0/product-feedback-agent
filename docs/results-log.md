@@ -369,3 +369,54 @@ The product implementation was not changed for this test-harness issue. The succ
 The public Sentence Transformers model was downloaded from Hugging Face without authentication.
 
 The HF cache emitted a Windows symlink optimization warning, but model loading and inference completed successfully.
+---
+
+## 2026-09-07 — Deterministic Analysis Context Packet
+
+### Implementation
+
+Implemented the bounded analysis-context preparation layer that will later be exposed through the MCP `prepare_analysis_context` tool.
+
+Implemented:
+
+- deterministic statistics over the complete valid feedback dataset
+- counts by source
+- counts by product area
+- counts by segment
+- rating count and average rating
+- one feedback semantic retrieval per packet
+- one product-context semantic retrieval per packet
+- deterministic diversity sampling
+- diversity gain based on unseen source, product area and segment
+- semantic-rank tie breaking
+- exact feedback and context evidence preservation
+- stable feedback, document and section IDs
+- explicit retrieval parameters
+- deterministic SHA-256 cache fingerprint
+- cache invalidation when query, evidence content, metadata or parameters change
+- input-order-independent cache fingerprinting
+- cache hits that skip indexing, embedding and retrieval
+
+### Diversity Correction
+
+The initial implementation selected the first remaining result that added any new diversity dimension.
+
+This was corrected so each remaining result receives a diversity gain:
+
+- +1 for a new source
+- +1 for a new product area
+- +1 for a new segment
+
+The result with the highest gain is selected. Semantic rank breaks ties.
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -v`
+
+Result:
+
+**91 / 91 tests passed**
+
+The suite includes a regression test verifying that a lower-ranked result with higher diversity gain is preferred over the immediately next semantic result.

@@ -1,4 +1,4 @@
-# Product Feedback Agent ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Implementation Checklist
+# Product Feedback Agent ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Implementation Checklist
 
 Last updated: 2026-09-02
 
@@ -20,7 +20,7 @@ Last updated: 2026-09-02
 - [x] Rename project to Product Feedback Agent
 - [x] Preserve human roadmap-decision boundary
 - [x] Add Evidence-Backed Opportunity Tree concept
-- [x] Lock bounded analyst ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ validator ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ critic ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ optional revision architecture
+- [x] Lock bounded analyst ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ validator ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ critic ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ optional revision architecture
 
 ## Runtime Model
 
@@ -79,9 +79,9 @@ Last updated: 2026-09-02
 - [x] Configure local vector store
 - [x] Implement semantic feedback search
 - [x] Implement product-context retrieval
-- [ ] Implement diversity sampling
-- [ ] Implement deterministic dataset statistics
-- [ ] Implement cached analysis-context packet
+- [x] Implement diversity sampling
+- [x] Implement deterministic dataset statistics
+- [x] Implement cached analysis-context packet
 
 ## MCP
 
@@ -165,6 +165,6 @@ Last updated: 2026-09-02
 - [ ] Complete architecture documentation
 - [ ] Complete evaluation documentation
 - [ ] Capture screenshots
-- [ ] Record 60ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“90 second demo
+- [ ] Record 60ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ90 second demo
 - [ ] Create evidence-based CV bullets
 - [ ] Document limitations
