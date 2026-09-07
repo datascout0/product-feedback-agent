@@ -106,7 +106,7 @@ def test_no_github_node_reachable_if_approval_gate_approve_branch_is_removed():
     reachable_without_edge = _reachable_from(
         workflow,
         "Intake Form",
-        exclude_edge=("Approval Gate", "Build GitHub Action Command"),
+        exclude_edge=("Approval Gate", "Build GitHub Issue Request"),
     )
     assert github_node not in reachable_without_edge
 
@@ -133,33 +133,32 @@ def test_approval_gate_also_requires_opportunity_id_and_repo_present():
     assert any("repo" in value.lower() for value in left_values)
 
 
-def test_github_action_cli_is_invoked_with_approved_and_no_dry_run_only_on_the_approved_path():
+def test_github_issue_request_is_built_with_approved_true_and_dry_run_false_only_on_the_approved_path():
     workflow = _load_workflow()
     build_node = next(
-        node for node in workflow["nodes"] if node["name"] == "Build GitHub Action Command"
+        node for node in workflow["nodes"] if node["name"] == "Build GitHub Issue Request"
     )
     code = build_node["parameters"]["jsCode"]
-    assert "--approved" in code
-    assert "--no-dry-run" in code
-    assert "github_action" in code
+    assert "approved: true" in code
+    assert "dry_run: false" in code
 
-    # No other node's code references the github_action CLI at all.
+    # No other Code node's jsCode hard-codes an approved/dry_run mutation flag.
     for node in workflow["nodes"]:
-        if node["name"] == "Build GitHub Action Command":
+        if node["name"] == "Build GitHub Issue Request":
             continue
         params = node.get("parameters", {})
         if "jsCode" in params:
-            assert "github_action" not in params["jsCode"]
-        if "command" in params and isinstance(params["command"], str):
-            assert "github_action" not in params["command"]
+            assert "approved: true" not in params["jsCode"]
+            assert "dry_run: false" not in params["jsCode"]
 
 
-def test_orchestrator_cli_is_never_called_with_a_github_flag():
+def test_analyze_request_is_never_built_with_a_github_field():
     workflow = _load_workflow()
-    analysis_node = next(node for node in workflow["nodes"] if node["name"] == "Build Analysis Command")
+    analysis_node = next(node for node in workflow["nodes"] if node["name"] == "Build Analyze Request")
     code = analysis_node["parameters"]["jsCode"]
-    assert "orchestrator" in code
-    assert "--approved" not in code
+    assert "feedback_file" in code
+    assert "analysis_query" in code
+    assert "approved" not in code
     assert "github" not in code.lower()
 
 
@@ -170,16 +169,82 @@ def test_workflow_has_no_hardcoded_windows_user_path():
     assert "/home/" not in raw
 
 
-def test_workflow_references_project_root_via_environment_variable_only():
-    raw = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert "PFA_PROJECT_ROOT" in raw
-    # The env var name must appear only as an $env.* lookup, never assigned
-    # a literal filesystem path value in the workflow JSON itself.
-    assert "\"PFA_PROJECT_ROOT\":" not in raw
-
-
 def test_workflow_does_not_embed_a_github_token_or_gemini_key():
     raw = WORKFLOW_PATH.read_text(encoding="utf-8")
     assert "GITHUB_TOKEN" not in raw
     assert "GEMINI_API_KEY" not in raw
     assert "ghp_" not in raw
+
+
+# ---------------------------------------------------------------------------
+# Stage 15 repair: Execute Command -> HTTP Request boundary
+#
+# Live finding (2026-09-07): the workflow imported successfully into a real
+# self-hosted n8n Docker instance, but both Execute Command nodes came up as
+# unknown "?" nodes ("Install this node to use it") -- Execute Command was
+# not available on that instance. Even if it had been, the command would
+# have executed inside the n8n container, not against the Windows host's
+# .venv where this project actually runs. Both Python integration boundaries
+# were replaced with n8n's built-in HTTP Request node calling a small local
+# HTTP service (src/product_feedback_agent/api.py) on the Windows host,
+# reachable from the Docker container at host.docker.internal.
+# ---------------------------------------------------------------------------
+
+
+def test_workflow_contains_no_execute_command_nodes():
+    workflow = _load_workflow()
+    for node in workflow["nodes"]:
+        assert node["type"] != "n8n-nodes-base.executeCommand", (
+            f"'{node['name']}' is still an Execute Command node -- Stage 15 live "
+            "finding: this node type was unavailable on the real n8n instance."
+        )
+
+
+def test_both_python_boundaries_use_http_request_nodes():
+    workflow = _load_workflow()
+    http_node_names = {
+        node["name"] for node in workflow["nodes"] if node["type"] == "n8n-nodes-base.httpRequest"
+    }
+    assert http_node_names == {"Run Analysis (HTTP)", "Create GitHub Issue (Approved)"}
+
+
+def test_analysis_http_request_targets_host_docker_internal_analyze_endpoint():
+    workflow = _load_workflow()
+    node = next(n for n in workflow["nodes"] if n["name"] == "Run Analysis (HTTP)")
+    assert node["parameters"]["method"] == "POST"
+    url = node["parameters"]["url"]
+    assert "host.docker.internal" in url
+    assert url.rstrip("'\" }").endswith("/analyze")
+
+
+def test_github_action_http_request_targets_host_docker_internal_issues_endpoint():
+    workflow = _load_workflow()
+    node = next(n for n in workflow["nodes"] if n["name"] == "Create GitHub Issue (Approved)")
+    assert node["parameters"]["method"] == "POST"
+    url = node["parameters"]["url"]
+    assert "host.docker.internal" in url
+    assert url.rstrip("'\" }").endswith("/github/issues")
+
+
+def test_no_execute_command_node_type_anywhere_in_the_workflow_file():
+    raw = WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "executeCommand" not in raw
+
+
+def test_rejection_path_cannot_reach_the_github_http_request_node():
+    """Same core safety property as before the repair, re-checked against
+    the new HTTP Request node name: the rejection branch is structurally
+    incapable of reaching a GitHub-mutating node."""
+    workflow = _load_workflow()
+    reachable_from_rejection = _reachable_from(workflow, "No Action (Rejected)")
+    assert "Create GitHub Issue (Approved)" not in reachable_from_rejection
+    assert reachable_from_rejection == {"No Action (Rejected)"}
+
+
+def test_no_hardcoded_windows_or_posix_secret_looking_path_in_new_http_nodes():
+    workflow = _load_workflow()
+    for name in ("Run Analysis (HTTP)", "Create GitHub Issue (Approved)"):
+        node = next(n for n in workflow["nodes"] if n["name"] == name)
+        raw = json.dumps(node)
+        assert "C:\\Users" not in raw
+        assert "C:/Users" not in raw

@@ -13,10 +13,10 @@
       "typeVersion": 2,
       "position": [-1180, 0],
       "webhookId": "00000000-0000-4000-8000-0000000000f1",
-      "notes": "STAGE: input/intake. A human starts one analysis run by submitting this form. No file content is embedded in the workflow -- paths are supplied at submission time (see setup docs: PFA_PROJECT_ROOT).",
+      "notes": "STAGE: input/intake. A human starts one analysis run by submitting this form. No file content is embedded in the workflow -- paths are supplied at submission time, resolved on the Windows-host Python service relative to its project root (see docs/n8n-setup.md).",
       "parameters": {
         "formTitle": "Product Feedback Agent - New Analysis",
-        "formDescription": "Paths are resolved on the n8n host, relative to PFA_PROJECT_ROOT (see setup docs). This step only runs analysis -- it never creates a GitHub issue.",
+        "formDescription": "Paths are resolved by the Python HTTP service on the Windows host, relative to its project root (see setup docs). This step only runs analysis -- it never creates a GitHub issue.",
         "formFields": {
           "values": [
             {
@@ -44,25 +44,31 @@
     },
     {
       "id": "00000000-0000-4000-8000-000000000002",
-      "name": "Build Analysis Command",
+      "name": "Build Analyze Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [-960, 0],
-      "notes": "Builds the product-feedback-agent CLI invocation (Stage 13 orchestrator). No analysis logic lives here -- it only shell-quotes the form inputs.",
+      "notes": "Builds the JSON body for POST /analyze on the Windows-host HTTP service (Stage 13 orchestrator, exposed via api.py). No analysis logic lives here -- it only reshapes the form inputs into the AnalyzeRequest schema (splits the comma-separated context-files field into an array).",
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const projectRoot = $env.PFA_PROJECT_ROOT;\nconst python = $env.PFA_PYTHON || 'python';\nif (!projectRoot) {\n  throw new Error('PFA_PROJECT_ROOT environment variable is not set on the n8n host. See docs/n8n-setup.md.');\n}\n\nfunction shQuote(value) {\n  return `'${String(value).replace(/'/g, \"'\\\\''\")}'`;\n}\n\nconst feedbackFile = $json['Feedback file path'];\nconst analysisQuery = $json['Analysis query'];\nconst contextFilesRaw = $json['Context file paths (comma-separated)'] || '';\nconst contextFiles = contextFilesRaw\n  .split(',')\n  .map((s) => s.trim())\n  .filter(Boolean);\n\nlet command = `cd ${shQuote(projectRoot)} && ${shQuote(python)} -m product_feedback_agent.orchestrator --feedback-file ${shQuote(feedbackFile)} --query ${shQuote(analysisQuery)}`;\nfor (const file of contextFiles) {\n  command += ` --context-file ${shQuote(file)}`;\n}\n\nreturn [{ json: { command } }];"
+        "jsCode": "const feedbackFile = $json['Feedback file path'];\nconst analysisQuery = $json['Analysis query'];\nconst contextFilesRaw = $json['Context file paths (comma-separated)'] || '';\nconst contextFiles = contextFilesRaw\n  .split(',')\n  .map((s) => s.trim())\n  .filter(Boolean);\n\nreturn [{\n  json: {\n    feedback_file: feedbackFile,\n    context_files: contextFiles,\n    analysis_query: analysisQuery,\n  },\n}];"
       }
     },
     {
       "id": "00000000-0000-4000-8000-000000000003",
-      "name": "Run Analysis (Python CLI)",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
+      "name": "Run Analysis (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [-740, 0],
-      "notes": "STAGE: analysis invocation. Runs the reusable orchestrator CLI (analyst -> deterministic validator -> critic -> optional single revision). No core product logic is duplicated in n8n. The CLI writes ONLY the structured JSON result to stdout; the human-review notice goes to stderr.",
+      "notes": "STAGE: analysis invocation. Calls POST /analyze on the small Product Feedback Agent HTTP service running on the Windows host (src/product_feedback_agent/api.py), which delegates directly to the reusable Stage 13 orchestrator.run_analysis (analyst -> deterministic validator -> critic -> optional single revision). No core product logic is duplicated in n8n. host.docker.internal lets this Docker-hosted n8n instance reach the Windows-host service -- see docs/n8n-setup.md. Replaces the Stage 15 Execute Command node, which failed on live import because n8n's Execute Command node was not installed on the target instance, and would in any case have run inside the n8n container rather than the Windows host's .venv.",
       "parameters": {
-        "command": "={{ $json.command }}"
+        "method": "POST",
+        "url": "={{ ($env.PFA_API_BASE_URL || 'http://host.docker.internal:8000') + '/analyze' }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
       }
     },
     {
@@ -71,10 +77,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [-520, 0],
-      "notes": "Fails the run loudly on a non-zero exit code rather than presenting a partial/garbled result for approval.",
+      "notes": "The HTTP Request node already throws on a non-2xx /analyze response (default behavior), so this is a defensive re-check plus wrapping the OrchestrationResult under an `orchestrationResult` key for the downstream nodes.",
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const item = $input.first().json;\nif (item.exitCode !== 0) {\n  throw new Error(`Analysis failed (exit code ${item.exitCode}): ${item.stderr}`);\n}\nconst orchestrationResult = JSON.parse(item.stdout);\nreturn [{ json: { orchestrationResult } }];"
+        "jsCode": "const item = $input.first().json;\nif (item.detail && !item.opportunities) {\n  throw new Error(`Analysis failed: ${item.detail}`);\n}\nreturn [{ json: { orchestrationResult: item } }];"
       }
     },
     {
@@ -173,25 +179,31 @@
     },
     {
       "id": "00000000-0000-4000-8000-000000000008",
-      "name": "Build GitHub Action Command",
+      "name": "Build GitHub Issue Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [380, -120],
-      "notes": "Approved path only. Writes the ORIGINAL orchestration result (not a re-derived or n8n-edited version) to a run-scoped temp file, then calls the Stage 14 github_action CLI with --approved --no-dry-run and an allow-list containing ONLY the human-supplied repo. No core GitHub logic is duplicated here -- this only shells out to the existing Python CLI.",
+      "notes": "Approved path only. Builds the JSON body for POST /github/issues, carrying the ORIGINAL orchestration result (not a re-derived or n8n-edited version) plus approved=true, dry_run=false, and an allow-list containing ONLY the human-supplied repo. No core GitHub logic is duplicated here -- this only shapes the request the Windows-host HTTP service (api.py) forwards, unmodified, to the existing Stage 14 create_opportunity_issue.",
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const projectRoot = $env.PFA_PROJECT_ROOT;\nconst python = $env.PFA_PYTHON || 'python';\nif (!projectRoot) {\n  throw new Error('PFA_PROJECT_ROOT environment variable is not set on the n8n host. See docs/n8n-setup.md.');\n}\n\nfunction shQuote(value) {\n  return `'${String(value).replace(/'/g, \"'\\\\''\")}'`;\n}\n\nconst orchestrationResult = $('Parse Orchestration Result').first().json.orchestrationResult;\nconst opportunityId = $json['opportunity_id to act on (leave blank to reject)'];\nconst repo = $json['Target GitHub repo (owner/name)'];\nconst tempFile = `${projectRoot}/data/local/n8n-run-${$execution.id}.json`;\nconst resultJson = JSON.stringify(orchestrationResult);\n\nconst writeCommand = `cat > ${shQuote(tempFile)} <<'PFA_EOF'\\n${resultJson}\\nPFA_EOF`;\nconst runCommand = `cd ${shQuote(projectRoot)} && ${shQuote(python)} -m product_feedback_agent.github_action --result-file ${shQuote(tempFile)} --opportunity-id ${shQuote(opportunityId)} --repo ${shQuote(repo)} --allowed-repo ${shQuote(repo)} --approved --no-dry-run`;\n\nreturn [{ json: { command: `${writeCommand}\\n${runCommand}` } }];"
+        "jsCode": "const orchestrationResult = $('Parse Orchestration Result').first().json.orchestrationResult;\nconst opportunityId = $json['opportunity_id to act on (leave blank to reject)'];\nconst repo = $json['Target GitHub repo (owner/name)'];\n\nreturn [{\n  json: {\n    result: orchestrationResult,\n    opportunity_id: opportunityId,\n    repo: repo,\n    approved: true,\n    dry_run: false,\n    allowed_repos: [repo],\n  },\n}];"
       }
     },
     {
       "id": "00000000-0000-4000-8000-000000000009",
       "name": "Create GitHub Issue (Approved)",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [600, -120],
-      "notes": "STAGE: GitHub action, approved path only. This node is unreachable unless Approval Gate matched 'approve' with a named opportunity_id and repo. The underlying CLI independently re-checks approved/dry-run/allow-list/duplicate before ever calling GitHub -- this node cannot bypass those guards.",
+      "notes": "STAGE: GitHub action, approved path only. This node is unreachable unless Approval Gate matched 'approve' with a named opportunity_id and repo. Calls POST /github/issues on the Windows-host HTTP service, which delegates directly to the existing, unmodified Stage 14 create_opportunity_issue -- that function independently re-checks approved/dry-run/allow-list/duplicate before ever calling GitHub, so this node cannot bypass those guards. Replaces the Stage 15 Execute Command node for the same reason as 'Run Analysis (HTTP)' above.",
       "parameters": {
-        "command": "={{ $json.command }}"
+        "method": "POST",
+        "url": "={{ ($env.PFA_API_BASE_URL || 'http://host.docker.internal:8000') + '/github/issues' }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
       }
     },
     {
@@ -200,9 +212,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [820, -120],
+      "notes": "The HTTP Request node already throws on a non-2xx /github/issues response (default behavior); this wraps the IssueActionResult under an `actionResult` key for the downstream Set node.",
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const item = $input.first().json;\nif (item.exitCode !== 0) {\n  throw new Error(`GitHub action failed (exit code ${item.exitCode}): ${item.stderr}`);\n}\nconst actionResult = JSON.parse(item.stdout);\nreturn [{ json: { actionResult } }];"
+        "jsCode": "const item = $input.first().json;\nif (item.detail && !item.status) {\n  throw new Error(`GitHub action failed: ${item.detail}`);\n}\nreturn [{ json: { actionResult: item } }];"
       }
     },
     {
@@ -244,12 +257,12 @@
   ],
   "connections": {
     "Intake Form": {
-      "main": [[{ "node": "Build Analysis Command", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Build Analyze Request", "type": "main", "index": 0 }]]
     },
-    "Build Analysis Command": {
-      "main": [[{ "node": "Run Analysis (Python CLI)", "type": "main", "index": 0 }]]
+    "Build Analyze Request": {
+      "main": [[{ "node": "Run Analysis (HTTP)", "type": "main", "index": 0 }]]
     },
-    "Run Analysis (Python CLI)": {
+    "Run Analysis (HTTP)": {
       "main": [[{ "node": "Parse Orchestration Result", "type": "main", "index": 0 }]]
     },
     "Parse Orchestration Result": {
@@ -263,11 +276,11 @@
     },
     "Approval Gate": {
       "main": [
-        [{ "node": "Build GitHub Action Command", "type": "main", "index": 0 }],
+        [{ "node": "Build GitHub Issue Request", "type": "main", "index": 0 }],
         [{ "node": "No Action (Rejected)", "type": "main", "index": 0 }]
       ]
     },
-    "Build GitHub Action Command": {
+    "Build GitHub Issue Request": {
       "main": [[{ "node": "Create GitHub Issue (Approved)", "type": "main", "index": 0 }]]
     },
     "Create GitHub Issue (Approved)": {

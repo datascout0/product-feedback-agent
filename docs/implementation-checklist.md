@@ -139,11 +139,18 @@ Last updated: 2026-09-02
 Note: ingestion/analysis-context/analyst/validator/critic/revision are not
 separate n8n nodes -- per the task instructions ("prefer invoking reusable
 application/MCP/API boundaries rather than copying Python business logic
-into n8n"), the workflow's "Run Analysis (Python CLI)" node invokes the
-single reusable Stage 13 `product_feedback_agent.orchestrator` CLI, which
-performs all of them internally, unmodified. HUMAN CHECKPOINT REQUIRED: this
-workflow has not been imported into or run against a live n8n instance --
-see `docs/n8n-setup.md`.
+into n8n"), the workflow's "Run Analysis (HTTP)" node calls the small local
+HTTP service (`src/product_feedback_agent/api.py`), which delegates
+directly to the single reusable Stage 13 `product_feedback_agent.orchestrator.run_analysis`,
+which performs all of them internally, unmodified.
+
+2026-09-07 live finding: this workflow WAS imported into a real self-hosted
+n8n Docker instance and the import succeeded, but its two `Execute Command`
+nodes were unavailable on that instance (see `docs/n8n-setup.md`). The
+integration boundary was changed from Execute Command to an HTTP Request ->
+local HTTP service design in response. HUMAN CHECKPOINT REQUIRED: the
+repaired (HTTP-boundary) workflow has NOT yet been re-imported into or run
+against the live n8n instance -- see `docs/n8n-setup.md`.
 
 ## GitHub REST Action
 

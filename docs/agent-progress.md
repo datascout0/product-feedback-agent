@@ -690,3 +690,164 @@ no access to a live localhost n8n instance):
 
 No real GitHub issue and no live n8n execution occurred during this
 session.
+
+---
+
+## Stage 15 repair — Live n8n finding + HTTP boundary replacement
+
+**Status:** Complete (offline repair only; live re-import/re-test NOT yet
+performed).
+
+### Live finding (2026-09-07)
+
+The Stage 15 workflow was imported into the user's real self-hosted n8n
+instance (Docker, image `docker.n8n.io/n8nio/n8n`, container `n8n`, port
+`5678:5678`). Import succeeded, but both nodes intended as "Run Analysis
+(Python CLI)" and "Create GitHub Issue (Approved)" -- both
+`n8n-nodes-base.executeCommand` -- appeared as unrecognized "?" nodes:
+"Install this node to use it. This node is not currently installed. It is
+either from a newer version of n8n, a custom node, or has an invalid
+structure." Separately, the Product Feedback Agent Python repo/`.venv` runs
+on the Windows host, not inside the n8n container -- so even with Execute
+Command enabled, a command run there would execute inside the container,
+not against this project's `.venv`. The Execute Command design was not
+viable for this local architecture.
+
+### Repair: HTTP boundary
+
+Replaced the Execute Command integration boundary with an HTTP boundary:
+`n8n (Docker) -> HTTP Request node -> small Product Feedback Agent HTTP
+service on the Windows host -> existing orchestrator.py / github_action.py
+(unmodified)`. Docker Desktop containers reach the Windows host at
+`host.docker.internal`.
+
+### Files added/changed
+
+- `src/product_feedback_agent/api.py` (new) -- a small Starlette + uvicorn
+  HTTP service. Both packages were already transitive dependencies of
+  `mcp[cli]` (starlette) and `mcp[cli]`/`chromadb` (uvicorn); no new
+  third-party package was installed, they were only formalized as direct
+  dependencies in `pyproject.toml`, alongside a new
+  `product-feedback-agent-api` console script.
+- `n8n/workflows/product-feedback-agent.json` -- the two
+  `n8n-nodes-base.executeCommand` nodes were replaced with
+  `n8n-nodes-base.httpRequest` nodes; the two shell-command-building Code
+  nodes were replaced with JSON-request-body-building Code nodes (same
+  data transformation, different output shape). `PFA_PROJECT_ROOT`/
+  `PFA_PYTHON` are no longer referenced anywhere in the workflow.
+- `docs/n8n-setup.md` -- rewritten for the two-terminal local sequence
+  (start the HTTP service, then use n8n already running in Docker) and the
+  `host.docker.internal:8000` addressing explanation.
+- `tests/test_api.py` (new), `tests/test_n8n_workflow.py` (updated).
+
+### What `api.py` does
+
+`GET /health` returns `{"status": "ok"}`. `POST /analyze` validates an
+explicit `AnalyzeRequest` (feedback_file, context_files, analysis_query,
+top-k/sample-size), resolves relative paths against the project root
+(mirroring `mcp_server.py`'s existing convention, not the process cwd),
+calls the existing Stage 13 `run_analysis` unmodified, and returns its
+`OrchestrationResult` as JSON -- it imports `create_opportunity_issue` only
+for the other route and never calls it. `POST /github/issues` validates an
+explicit `GitHubIssueRequest` (result, opportunity_id, repo, approved,
+dry_run, allowed_repos) and delegates directly to the existing Stage 14
+`create_opportunity_issue` unmodified -- every existing safety control
+(`approved=True` required for mutation, `dry_run=True` default, the repo
+allow-list, duplicate-marker prevention) is preserved because this layer
+never reimplements them. No secret is read, logged, or returned anywhere in
+this module. The service binds `0.0.0.0:8000` by default (configurable via
+`PFA_API_HOST`/`PFA_API_PORT`) because Docker Desktop's
+`host.docker.internal` cannot reach a service bound only to `127.0.0.1`.
+
+### n8n workflow changes
+
+"Build Analysis Command" (shell-quoting Code node) became "Build Analyze
+Request" (builds the `AnalyzeRequest` JSON body); "Run Analysis (Python
+CLI)" (Execute Command) became "Run Analysis (HTTP)"
+(`n8n-nodes-base.httpRequest`, `POST` to
+`{{ $env.PFA_API_BASE_URL || 'http://host.docker.internal:8000' }}/analyze`).
+"Build GitHub Action Command" became "Build GitHub Issue Request" (builds
+the `GitHubIssueRequest` JSON body, still carrying `approved: true,
+dry_run: false` and a single-repo allow-list only on the already-gated
+approved path); "Create GitHub Issue (Approved)" stayed the same node name
+but became an `n8n-nodes-base.httpRequest` node posting to `.../github/issues`.
+"Parse Orchestration Result" and "Parse GitHub Action Result" were
+simplified (no more `exitCode`/`stdout` parsing) but keep their same
+wrapper-key contract (`orchestrationResult`, `actionResult`) so every
+downstream node -- Render Review Summary, Human Review & Approval, Approval
+Gate, Approved Summary, No Action (Rejected) -- is unchanged. The approval
+boundary itself (case-sensitive `"approve"` + non-blank opportunity_id +
+non-blank repo, rejection path with zero outgoing connections) is
+unchanged.
+
+### Tests
+
+`tests/test_api.py` -- 15 new tests, all offline (Starlette `TestClient`,
+in-process, no socket opened): `/health` responds; `/analyze` delegates
+exactly once to `run_analysis` and returns exactly 3 opportunities;
+`/analyze` never invokes `create_opportunity_issue` (proven by monkeypatching
+it to raise if called); `/analyze` rejects missing required fields and
+unknown fields (422) and surfaces `OrchestrationError` as a structured 400;
+`/github/issues` delegates to `create_opportunity_issue` with the exact
+arguments supplied; an unapproved request is refused
+(`refused_not_approved`); `approved` defaults to `False`; dry-run is the
+default and makes no mutation (checked by unsetting `GITHUB_TOKEN` and
+confirming the request still succeeds, proving no real client is
+constructed); the default allow-list stays empty when `GITHUB_DEMO_REPO` is
+unset (`refused_unsupported_repo`, not silently allowed); a duplicate
+idempotency marker is still refused through the HTTP layer (via a
+monkeypatched `GitHubRestIssueClient`, still zero real network calls);
+`/github/issues` rejects unknown fields; and a full-stack test (real
+`run_analysis`, fake retrieval/analyst/critic/revision clients, real HTTP
+round-trip via `TestClient`) proves the HTTP boundary introduces no
+additional Gemini requests beyond the existing 2-request pass-path budget.
+
+`tests/test_n8n_workflow.py` -- grew from 13 to 19 tests. Removed 2 tests
+that asserted CLI-command-string content no longer applicable (the
+`github_action`/`orchestrator` CLI invocation checks, and the
+`PFA_PROJECT_ROOT` environment-variable-reference check, since neither CLI
+is shelled out to anymore). Added: no `n8n-nodes-base.executeCommand` node
+remains anywhere in the workflow (checked both structurally and as a raw
+string search for `"executeCommand"`); exactly the two expected nodes are
+`n8n-nodes-base.httpRequest`; the analysis HTTP node's URL contains
+`host.docker.internal` and ends with `/analyze`; the GitHub-action HTTP
+node's URL contains `host.docker.internal` and ends with `/github/issues`;
+the rejection path's reachable-node set is exactly `{"No Action
+(Rejected)"}` (re-proving the core safety property against the new node
+names); the two new HTTP nodes contain no hard-coded Windows path; the
+"Build GitHub Issue Request" node is the only place `approved: true` /
+`dry_run: false` appear; the "Build Analyze Request" node never references
+`approved` or anything GitHub-related.
+
+### Test result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result: **292 / 292 passed** (271 baseline + 15 new `test_api.py` + 6 net
+new `test_n8n_workflow.py`, i.e. 8 added minus 2 removed). 0 failures, 0
+errors, no network/Gemini/GitHub/n8n execution anywhere in the suite.
+
+### Unresolved issues / human validation needed
+
+**HUMAN CHECKPOINT REQUIRED**: the repaired workflow has **not yet been
+re-imported into or re-run against the live n8n instance**. Before treating
+this as demo-ready:
+
+1. Start the HTTP service on the Windows host (`.\.venv\Scripts\python.exe
+   -m product_feedback_agent.api`, or the `product-feedback-agent-api`
+   console script) and confirm `GET http://127.0.0.1:8000/health` responds.
+2. Re-import (or open, if the running workflow is edited in place)
+   `n8n/workflows/product-feedback-agent.json` into the live n8n Docker
+   instance and confirm both `HTTP Request` nodes open cleanly (no
+   unrecognized-node warning this time) and that
+   `http://host.docker.internal:8000/health` is reachable from inside the
+   container.
+3. Run the reject path once (expect a dead end, no GitHub call) and the
+   approve path once against a real, disposable demo repository (expect a
+   real GitHub issue) -- the same two live checks called for, and not yet
+   completed, in the original Stage 15 entry above.
+
+No real GitHub issue, no real Gemini call, and no live n8n execution
+occurred during this repair.

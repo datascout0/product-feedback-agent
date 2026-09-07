@@ -1072,3 +1072,99 @@ Breakdown:
 executed against a live n8n instance, and no real GitHub issue was created.
 See `docs/agent-progress.md` Stage 15 for the exact human verification
 steps remaining.
+
+---
+
+## 2026-09-07 — Stage 15 Live Finding + HTTP Boundary Repair
+
+### Live finding
+
+The Stage 15 workflow was imported into the user's real self-hosted n8n
+Docker instance (`docker.n8n.io/n8nio/n8n`, container `n8n`, port
+`5678:5678`). The import itself succeeded, but both `Execute Command` nodes
+("Run Analysis (Python CLI)" and "Create GitHub Issue (Approved)") came up
+as unrecognized "?" nodes: "Install this node to use it. This node is not
+currently installed." Execute Command was not available on that instance.
+Separately, even if it had been enabled, the command would have executed
+*inside the n8n Docker container*, not against the Windows host's `.venv`
+where this project's Python code actually runs -- so the Execute Command
+design would not have worked for this local architecture regardless.
+
+### Repair
+
+Replaced the Execute Command integration boundary with an HTTP boundary:
+
+```
+n8n (Docker) -> HTTP Request node -> Product Feedback Agent HTTP service
+(Windows host, host.docker.internal:8000) -> existing orchestrator.py /
+github_action.py (unmodified)
+```
+
+- Added `src/product_feedback_agent/api.py`: a small Starlette + uvicorn
+  HTTP service exposing `GET /health`, `POST /analyze` (delegates to the
+  existing Stage 13 `run_analysis`), and `POST /github/issues` (delegates
+  to the existing Stage 14 `create_opportunity_issue`). Both endpoints are
+  thin request/response translation only -- no analysis or GitHub logic is
+  duplicated, and every existing safety control (approved=True required,
+  dry-run default-safe, repo allow-list, duplicate-marker prevention) is
+  preserved because the HTTP layer only forwards to the unmodified
+  function. Starlette and uvicorn were already transitive dependencies of
+  `mcp[cli]`/`chromadb`; no new package was installed, only formalized as a
+  direct dependency in `pyproject.toml`.
+- Updated `n8n/workflows/product-feedback-agent.json`: the two Execute
+  Command nodes were replaced with `n8n-nodes-base.httpRequest` nodes
+  ("Run Analysis (HTTP)", "Create GitHub Issue (Approved)") calling
+  `http://host.docker.internal:8000/analyze` and `.../github/issues`
+  respectively. The two "Build ... Command" shell-quoting Code nodes were
+  replaced with "Build Analyze Request" / "Build GitHub Issue Request",
+  which build the equivalent JSON request bodies instead of shell commands
+  -- the same data transformation (splitting the comma-separated
+  context-files field, carrying `approved=true`/`dry_run=false`/the
+  single-repo allow-list only on the approved path) is preserved. The
+  `PFA_PROJECT_ROOT`/`PFA_PYTHON` environment variables the old Execute
+  Command design needed are no longer referenced anywhere in the workflow.
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**292 / 292 tests passed**
+
+Breakdown:
+
+- 15 new tests in `tests/test_api.py` (all offline; `TestClient` in-process,
+  no socket opened): `/health`, `/analyze` delegates exactly once and
+  returns exactly 3 opportunities, `/analyze` never invokes
+  `create_opportunity_issue`, `/github/issues` delegates to
+  `create_opportunity_issue`, an unapproved request is refused, dry-run
+  stays safe by default, the default allow-list stays empty when
+  `GITHUB_DEMO_REPO` is unset, and a duplicate idempotency marker is still
+  refused through the HTTP layer (via a monkeypatched
+  `GitHubRestIssueClient`, no real network) -- plus a full-stack test
+  proving the HTTP boundary adds no Gemini requests beyond the existing
+  2/3-request Group 1 budget.
+- `tests/test_n8n_workflow.py` grew from 13 to 19 tests (2 obsolete
+  CLI-command tests removed, 8 new ones added): no `Execute Command` node
+  remains anywhere in the file; both Python boundaries use
+  `n8n-nodes-base.httpRequest`; both HTTP Request URLs target
+  `host.docker.internal` on the correct endpoint path
+  (`/analyze`, `/github/issues`); the rejection path is still structurally
+  incapable of reaching the GitHub HTTP Request node; approval is still
+  required (unchanged existing tests); no hard-coded Windows path or secret
+  is present in either new node.
+- 271 previously-passing tests remained passing, unmodified.
+- 0 failures, 0 errors.
+- No network, Gemini, or GitHub requests were made in the test suite.
+- No live n8n instance was reached during this repair.
+
+### Status
+
+The repaired workflow has **not yet been re-imported into or run against
+the live n8n instance**. Live re-import/re-test remains a required human
+verification step -- see `docs/agent-progress.md` Stage 15 for details. No
+real GitHub issue was created and no real Gemini call was made during this
+repair.

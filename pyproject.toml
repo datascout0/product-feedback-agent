@@ -12,7 +12,9 @@ dependencies = [
     "sentence-transformers>=5,<6",
     "chromadb>=1,<2",
     "mcp[cli]>=2,<3",
-    "google-genai>=2,<3"
+    "google-genai>=2,<3",
+    "starlette>=1,<2",
+    "uvicorn>=0.28,<1"
 ]
 
 [project.optional-dependencies]
@@ -23,6 +25,7 @@ dev = [
 [project.scripts]
 product-feedback-agent = "product_feedback_agent.orchestrator:main"
 product-feedback-agent-github-action = "product_feedback_agent.github_action:main"
+product-feedback-agent-api = "product_feedback_agent.api:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
