@@ -4,9 +4,10 @@ import subprocess
 import sys
 import types
 from pathlib import Path
+from typing import Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from product_feedback_agent.analysis_context import (
     AnalysisContextPacket,
@@ -22,9 +23,13 @@ from product_feedback_agent.critic import (
     CriticIssue,
     CriticIssueType,
     CriticOutput,
+    CriticPassResponse,
+    CriticReviseResponse,
     CriticStatus,
+    CriticWireResponse,
     GeminiCriticClient,
     build_critic_prompt,
+    build_critic_response_schema,
     run_critic,
 )
 from product_feedback_agent.validation import validate_analyst_output
@@ -240,6 +245,107 @@ def test_critic_output_has_no_roadmap_or_action_fields():
 
 
 # ---------------------------------------------------------------------------
+# Wire (structured-output) schema: regression for the second real Group 1
+# failure. The real critic twice returned status="revise" with
+# required_revisions=[] -- Pydantic's CriticOutput.model_validator correctly
+# rejected it, but that cross-field rule was invisible in the flat
+# CriticOutput.model_json_schema() sent to Gemini, so prompt wording alone
+# was relied on and failed twice. build_critic_response_schema() now sends
+# an explicit pass/revise anyOf union whose per-branch minItems/maxItems
+# encode the same rule structurally.
+# ---------------------------------------------------------------------------
+
+
+def test_critic_response_schema_offers_exactly_two_pass_revise_alternatives():
+    schema = build_critic_response_schema()
+    alternatives = schema.get("anyOf") or schema.get("oneOf")
+    assert alternatives is not None, "response schema must use anyOf/oneOf"
+    assert len(alternatives) == 2
+
+    ref_names = {alt["$ref"].rsplit("/", 1)[-1] for alt in alternatives}
+    assert ref_names == {"CriticPassResponse", "CriticReviseResponse"}
+
+
+def test_critic_response_schema_revise_branch_requires_at_least_one_revision():
+    schema = build_critic_response_schema()
+    revise_schema = schema["$defs"]["CriticReviseResponse"]
+    required_revisions_schema = revise_schema["properties"]["required_revisions"]
+    assert required_revisions_schema["minItems"] == 1
+    assert "required_revisions" in revise_schema["required"]
+
+
+def test_critic_response_schema_pass_branch_forbids_revision_instructions():
+    schema = build_critic_response_schema()
+    pass_schema = schema["$defs"]["CriticPassResponse"]
+    required_revisions_schema = pass_schema["properties"]["required_revisions"]
+    assert required_revisions_schema["maxItems"] == 0
+
+
+def _wire_findings(**overrides: Any) -> dict:
+    payload = {
+        "issues": [],
+        "unsupported_claims": [],
+        "citation_errors": [],
+        "duplicate_opportunities": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_wire_schema_parses_valid_pass_output():
+    adapter = TypeAdapter(CriticWireResponse)
+    parsed = adapter.validate_python(
+        _wire_findings(status="pass", required_revisions=[])
+    )
+    assert isinstance(parsed, CriticPassResponse)
+    assert parsed.required_revisions == []
+
+
+def test_wire_schema_parses_valid_revise_output_with_a_required_revision():
+    adapter = TypeAdapter(CriticWireResponse)
+    parsed = adapter.validate_python(
+        _wire_findings(status="revise", required_revisions=["Merge opp_2 into opp_1."])
+    )
+    assert isinstance(parsed, CriticReviseResponse)
+    assert parsed.required_revisions == ["Merge opp_2 into opp_1."]
+
+
+def test_wire_schema_rejects_revise_with_empty_required_revisions():
+    adapter = TypeAdapter(CriticWireResponse)
+    with pytest.raises(ValidationError):
+        adapter.validate_python(_wire_findings(status="revise", required_revisions=[]))
+
+
+def test_wire_schema_rejects_pass_with_nonempty_required_revisions():
+    adapter = TypeAdapter(CriticWireResponse)
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            _wire_findings(status="pass", required_revisions=["should not be allowed"])
+        )
+
+
+def test_run_critic_rejects_real_failure_shape_revise_with_no_required_revisions(
+    packet, analyst_output, validation_result
+):
+    # This is the literal shape the real Gemini critic returned twice live:
+    # status="revise", required_revisions=[]. It must still be rejected --
+    # now caught by the wire schema/adapter, and CriticOutput's own
+    # model_validator remains as a second, unremoved guardrail.
+    payload = _revise_payload()
+    payload["required_revisions"] = []
+    client = FakeCriticClient(payload)
+    with pytest.raises(CriticError):
+        run_critic(packet, analyst_output, validation_result, client=client)
+
+
+def test_critic_output_model_validator_still_rejects_revise_with_empty_required_revisions():
+    # Unremoved guardrail: even bypassing run_critic/the wire adapter
+    # entirely, CriticOutput itself still refuses this shape directly.
+    with pytest.raises(ValidationError):
+        CriticOutput.model_validate({**_revise_payload(), "required_revisions": []})
+
+
+# ---------------------------------------------------------------------------
 # Prompt construction
 # ---------------------------------------------------------------------------
 
@@ -323,7 +429,7 @@ def test_run_critic_passes_cache_key_to_client(packet, analyst_output, validatio
 def test_run_critic_passes_response_schema_to_client(packet, analyst_output, validation_result):
     client = FakeCriticClient(_pass_payload())
     run_critic(packet, analyst_output, validation_result, client=client)
-    assert client.calls[0]["response_schema"] == CriticOutput.model_json_schema()
+    assert client.calls[0]["response_schema"] == build_critic_response_schema()
 
 
 def test_run_critic_returns_pass_output(packet, analyst_output, validation_result):
@@ -458,7 +564,7 @@ def test_real_client_success_writes_trace_without_api_key(monkeypatch, tmp_path)
     client = GeminiCriticClient(log_path=log_path)
 
     raw = client.generate_structured(
-        prompt="critique this", response_schema=CriticOutput.model_json_schema(), cache_key="ck123"
+        prompt="critique this", response_schema=build_critic_response_schema(), cache_key="ck123"
     )
 
     assert raw == payload
@@ -467,7 +573,7 @@ def test_real_client_success_writes_trace_without_api_key(monkeypatch, tmp_path)
     assert interactions.create_calls[0]["response_format"] == {
         "type": "text",
         "mime_type": "application/json",
-        "schema": CriticOutput.model_json_schema(),
+        "schema": build_critic_response_schema(),
     }
 
     log_contents = log_path.read_text(encoding="utf-8")

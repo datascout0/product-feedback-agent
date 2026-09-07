@@ -259,6 +259,88 @@ Group 2 work begins.
 
 ---
 
+## Stage 12c — Second live critic failure + schema-level fix
+
+**Status:** Complete (fix only; full live Group 1 success is NOT claimed)
+
+### Live finding
+
+A second real `run_pipeline(packet)` smoke run reached the analyst and
+critic requests again. The critic (real Gemini) returned `status="revise"`
+with `required_revisions=[]` again -- the identical invalid shape from
+Stage 12b, despite the Stage 12b prompt strengthening explicitly
+prohibiting it. `CriticOutput`'s model-validator again correctly rejected
+it and `run_critic` raised `CriticError` before any revision request was
+made.
+
+### Conclusion
+
+Two live occurrences of the same invalid shape, the second after an
+explicit prompt-level prohibition, show that prompt-only enforcement of the
+`status="revise"` <=> non-empty `required_revisions` relationship is
+insufficient. The invariant needed to move into the JSON Schema boundary
+sent to Gemini's structured-output API, which the model is far more
+strongly bound to follow than free-text prompt instructions.
+
+### Fix
+
+`src/product_feedback_agent/critic.py` now defines a wire (structured-output)
+schema layer, separate from the existing domain `CriticOutput`:
+
+- `CriticPassResponse` (status: `Literal["pass"]`, `required_revisions`
+  constrained to `max_length=0`)
+- `CriticReviseResponse` (status: `Literal["revise"]`, `required_revisions`
+  constrained to `min_length=1`, and required rather than defaulted)
+- `CriticWireResponse = CriticPassResponse | CriticReviseResponse`
+- `build_critic_response_schema()` returns
+  `TypeAdapter(CriticWireResponse).json_schema()` -- an `anyOf` of the two
+  alternatives, each with a `$defs` entry carrying `required_revisions`'
+  `minItems`/`maxItems` constraint directly in the schema sent to Gemini.
+
+`run_critic` now sends `build_critic_response_schema()` (not
+`CriticOutput.model_json_schema()`) to the critic client, parses the raw
+response through `TypeAdapter(CriticWireResponse)` first (so a
+structurally-invalid `revise` + `[]` or `pass` + non-empty response is
+rejected at that layer), and then re-validates the parsed result through
+the existing `CriticOutput` domain model before returning it. `CriticOutput`
+and its `model_validator` are unchanged and unremoved -- this is
+defense-in-depth, not a replacement. The rest of the pipeline
+(`pipeline.py`, `PipelineResult`, the 2/3 request budget) is untouched.
+
+The Stage 12b prompt strengthening is kept as an additional instruction
+layer; schema enforcement is now the primary repair.
+
+### Tests
+
+Added to `tests/test_critic.py` (9 new tests): the response schema exposes
+exactly two `anyOf` alternatives named `CriticPassResponse`/
+`CriticReviseResponse`; the revise alternative has `minItems: 1` and marks
+`required_revisions` required; the pass alternative has `maxItems: 0`;
+valid pass and valid revise (with a revision) payloads parse through the
+wire `TypeAdapter`; a revise + `[]` payload and a pass + non-empty payload
+are both rejected at the wire layer; the literal live-failure shape
+(`revise` + `[]`) is still rejected end-to-end through `run_critic`; and
+`CriticOutput.model_validate` still rejects the same shape directly,
+confirming the original guardrail was not removed. Updated
+`test_run_critic_passes_response_schema_to_client` and the real-client
+happy-path test to assert against `build_critic_response_schema()` instead
+of the now-unused `CriticOutput.model_json_schema()` as the schema sent
+over the wire.
+
+### Test result
+
+Full suite: **213 / 213 passed** (204 baseline + 9 new).
+
+### Unresolved issues / human validation needed
+
+No successful full live pipeline run has been completed yet. Full live
+Group 1 success is NOT claimed. One controlled live retry (a single real
+smoke run, same 2/3 request budget) is recommended next to confirm the
+schema-enforced critic response is accepted by real Gemini output before
+any Group 2 work begins.
+
+---
+
 ## Next step (Group 2)
 
 Group 1 (Stages 10-12) is complete. Group 2 work -- explicitly out of scope

@@ -749,3 +749,84 @@ Breakdown:
 Group 1 has not yet completed a successful full live pipeline run. One
 controlled live retry is recommended to confirm the strengthened critic
 prompt produces schema-valid output before any Group 2 work begins.
+
+---
+
+## 2026-09-07 — Live Group 1 Smoke: Second Critic Contract Failure and Schema-Level Fix
+
+### Observed live result
+
+A second real `run_pipeline(packet)` smoke run (live attempt 2, after the
+prompt strengthening above) again reached the analyst request and the
+critic request. The critic (real Gemini `gemini-3.7-flash` call) again
+returned `status="revise"` with `required_revisions=[]` -- the same invalid
+shape as live attempt 1, despite the strengthened prompt explicitly
+prohibiting it. `CriticOutput`'s Pydantic model-validator again correctly
+rejected the output, so `run_critic` raised `CriticError` before any
+revision request was made. No successful full live pipeline run is claimed
+from this smoke test either.
+
+### Conclusion
+
+Prompt-only enforcement of the `status="revise"` => non-empty
+`required_revisions` relationship is insufficient: two separate live
+attempts, the second with an explicit prohibition in the prompt, produced
+the same invalid shape. The rule needed to be enforced at the JSON Schema
+boundary sent to Gemini, not only in the prompt text and the post-hoc
+`CriticOutput` validator.
+
+### Fix
+
+Added a wire (structured-output) schema layer in
+`src/product_feedback_agent/critic.py`: `CriticPassResponse` and
+`CriticReviseResponse` are two Pydantic models representing the pass/revise
+alternatives, unioned as `CriticWireResponse` and exposed as an `anyOf`
+JSON Schema via `build_critic_response_schema()` (backed by
+`TypeAdapter(CriticWireResponse).json_schema()`). `CriticPassResponse`
+constrains `required_revisions` to `maxItems: 0`; `CriticReviseResponse`
+constrains it to `minItems: 1` (and marks it required). `run_critic` now
+sends this schema to the critic client instead of
+`CriticOutput.model_json_schema()`, validates the raw response through the
+wire `TypeAdapter` first, and then re-validates the parsed result through
+the existing `CriticOutput` domain model (whose own `model_validator` is
+unchanged and unremoved) before returning it -- so the rest of the pipeline
+keeps using the same `CriticOutput` type.
+
+No prompt-only fix was relied on this time; the strengthened prompt text
+from the previous fix is kept as an additional instruction layer, not the
+primary enforcement. No retries were added, the 2/3 Gemini request budget
+in `pipeline.py` is unchanged, and no required revisions are fabricated in
+Python -- a `revise` + `[]` response is still rejected outright, now at two
+layers (wire schema, then `CriticOutput`).
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**213 / 213 tests passed**
+
+Breakdown:
+
+- 9 new critic wire-schema regression tests passed (two-alternative
+  `anyOf`, revise-branch `minItems: 1`, pass-branch `maxItems: 0`, valid
+  pass/revise parsing, revise+`[]` and pass+non-empty rejections at the
+  wire layer, the real live failure shape rejected end-to-end through
+  `run_critic`, and the unremoved `CriticOutput` guardrail rejecting the
+  same shape directly)
+- 204 previously-passing tests remained passing
+- 0 failures, 0 errors
+- No network or Gemini requests were made
+
+### Status
+
+Group 1 has still not completed a successful full live pipeline run. Full
+live Group 1 success is NOT claimed. The critic contract is now enforced at
+the JSON Schema boundary sent to Gemini (not only by prompt wording), which
+is a structural, not just textual, guarantee against this specific failure
+shape recurring. One controlled live retry is recommended next, and only
+one -- per repository instruction, no further retries beyond that single
+attempt should be made without human review of the result.

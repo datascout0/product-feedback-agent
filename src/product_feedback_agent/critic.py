@@ -27,9 +27,9 @@ import time
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
 from product_feedback_agent.analysis_context import AnalysisContextPacket
 from product_feedback_agent.analyst import AnalystOutput
@@ -102,6 +102,71 @@ class CriticOutput(BaseModel):
                 "status='revise' requires at least one entry in required_revisions."
             )
         return self
+
+
+# ---------------------------------------------------------------------------
+# Wire (structured-output) schema: pass/revise as two distinct JSON Schema
+# alternatives, so the status <-> required_revisions relationship is
+# enforced by the schema Gemini actually receives, not only by the
+# CriticOutput model_validator above.
+#
+# Background (see docs/agent-progress.md Stage 12b and the second live
+# failure this fix addresses): the real critic twice returned
+# status="revise" with required_revisions=[] despite the prompt explicitly
+# prohibiting it. Pydantic's cross-field model_validator correctly rejected
+# both responses, but that rule is invisible in CriticOutput.model_json_schema()
+# -- a flat schema where required_revisions is just `list[str]` with no
+# length constraint tied to status. Prompt wording alone was insufficient.
+#
+# CriticPassResponse/CriticReviseResponse below are structurally identical
+# to CriticOutput except status is a Literal (not the general enum) and
+# required_revisions carries a length constraint (maxItems=0 / minItems=1)
+# that a JSON-Schema-constrained decoder can enforce at generation time.
+# Every parsed wire response is then re-validated through CriticOutput
+# (which keeps its own guardrail) so the rest of the pipeline keeps using
+# the same domain type.
+# ---------------------------------------------------------------------------
+
+
+class _CriticWireFindings(BaseModel):
+    """Fields shared by both pass/revise wire alternatives."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    issues: list[CriticIssue] = Field(default_factory=list)
+    unsupported_claims: list[str] = Field(default_factory=list)
+    citation_errors: list[str] = Field(default_factory=list)
+    duplicate_opportunities: list[str] = Field(default_factory=list)
+
+
+class CriticPassResponse(_CriticWireFindings):
+    """Wire alternative for status="pass": required_revisions MUST be empty."""
+
+    status: Literal[CriticStatus.PASS]
+    required_revisions: list[str] = Field(default_factory=list, max_length=0)
+
+
+class CriticReviseResponse(_CriticWireFindings):
+    """Wire alternative for status="revise": required_revisions MUST be non-empty."""
+
+    status: Literal[CriticStatus.REVISE]
+    required_revisions: list[str] = Field(min_length=1)
+
+
+CriticWireResponse = CriticPassResponse | CriticReviseResponse
+
+_CRITIC_RESPONSE_ADAPTER: TypeAdapter[CriticWireResponse] = TypeAdapter(CriticWireResponse)
+
+
+def build_critic_response_schema() -> dict[str, Any]:
+    """Return the structured-output JSON schema actually sent to the critic model.
+
+    An anyOf of the two wire alternatives above, so status="pass" structurally
+    forces required_revisions to maxItems 0 and status="revise" structurally
+    forces it to minItems 1 -- enforced by the schema, not only by prompt
+    wording or a post-hoc Pydantic validator.
+    """
+    return _CRITIC_RESPONSE_ADAPTER.json_schema()
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +297,7 @@ def run_critic(
         client = GeminiCriticClient()
 
     prompt = build_critic_prompt(packet, analyst_output, validation_result)
-    response_schema = CriticOutput.model_json_schema()
+    response_schema = build_critic_response_schema()
 
     raw_output = client.generate_structured(
         prompt=prompt, response_schema=response_schema, cache_key=packet.cache_key
@@ -247,7 +312,16 @@ def run_critic(
         raise CriticError(f"Critic output is not valid JSON: {exc}") from exc
 
     try:
-        return CriticOutput.model_validate(data)
+        wire_output = _CRITIC_RESPONSE_ADAPTER.validate_python(data)
+    except ValidationError as exc:
+        raise CriticError(f"Critic output failed schema validation: {exc}") from exc
+
+    # Re-validate through the existing domain model so CriticOutput's own
+    # guardrail (and the rest of the pipeline's API) stays unchanged. This
+    # should never fail given the wire schema above, but it is kept as
+    # defense in depth rather than removed.
+    try:
+        return CriticOutput.model_validate(wire_output.model_dump(mode="json"))
     except ValidationError as exc:
         raise CriticError(f"Critic output failed schema validation: {exc}") from exc
 
