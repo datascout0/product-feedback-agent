@@ -2,18 +2,19 @@
 
 Workflow file: `n8n/workflows/product-feedback-agent.json`
 
-> **HUMAN CHECKPOINT REQUIRED.** This workflow was structurally validated
-> (JSON well-formed, every node reachable, every connection target exists,
-> no `Execute Command` node remains) but the **repaired** version below has
-> **not yet been re-imported into or re-run against the live n8n instance**.
-> A first version of this workflow *was* imported into a real self-hosted
-> n8n Docker instance and the import succeeded, but its two
-> `Execute Command` nodes came up as unrecognized "?" nodes ("Install this
-> node to use it") — see "Live finding" below. The architecture was changed
-> to an HTTP boundary in response; that change has only been verified
-> offline (structural JSON tests + an offline HTTP-API test suite), not
-> against the live instance. Do not treat this document as evidence that a
-> live end-to-end n8n run occurred.
+> **Live end-to-end validated (2026-09-07).** After several import/repair
+> rounds (see "Live finding" below and `docs/agent-progress.md` Stage 15),
+> this workflow was run live, start to finish, against the user's real
+> self-hosted n8n Docker instance and the Windows-host HTTP service: the
+> Gemini analyst -> deterministic validator -> critic -> conditional
+> revision pipeline completed live through `POST /analyze`; a `reject`
+> submission on **Human Review & Approval** correctly dead-ended at **No
+> Action (Rejected)** with zero GitHub calls; and an `approve` submission on
+> a second run correctly created one real GitHub issue
+> (`datascout0/product-feedback-agent` issue #1, "[Opportunity] Search
+> Result Filtering Friction") through `POST /github/issues`. See
+> `docs/results-log.md`, "2026-09-07 — Live Stage 15 Success", for the exact
+> trace-log evidence (timestamps, durations, token counts, model names).
 
 ## Live finding (2026-09-07)
 
@@ -214,17 +215,24 @@ Desktop.
    underlying function's own guards, independent of what the n8n form or
    HTTP request body carried.
 
-## What was NOT done by Claude Code in this session
+## What has been live-validated, and what remains a one-time human action
 
-- The repaired (HTTP-boundary) workflow was not imported into or executed
-  live against the n8n instance. The prior version *was* imported live —
-  see "Live finding" above — but that import surfaced the Execute Command
-  incompatibility this document's repair addresses.
-- No real GitHub issue was created (Stage 14's own scope also explicitly
-  excludes this — see `docs/agent-progress.md` Stage 14).
-- Node-parameter field names for the HTTP Request node (and the
-  Form Trigger/Form/If/Set nodes carried over unchanged from the original
-  import) were written from the current n8n workflow-JSON schema at
-  authoring time; verify each node opens without a "node type
-  unrecognized" or parameter-migration warning after import, and adjust
-  field names if your installed version differs.
+- **Live-validated (2026-09-07):** the HTTP-boundary workflow imports
+  cleanly; `Run Analysis (HTTP)` reaches the Windows-host API and completes
+  a real analyst -> validator -> critic -> conditional revision run (the
+  live revision run measured exactly 3 model requests); `Human Review &
+  Approval` renders correctly; a `reject` decision dead-ends at **No Action
+  (Rejected)** with zero GitHub calls; an `approve` decision (with a real
+  `opportunity_id` and a disposable demo repo) creates one real GitHub
+  issue via `POST /github/issues`, gated by the same allow-list/idempotency
+  checks proven offline in `tests/test_github_action.py`.
+- Because live requests against the default `gemini-3.7-flash` model hit
+  that Google AI Studio project's rate limit mid-session, the successful
+  end-to-end run above used `PFA_GEMINI_MODEL=gemini-3.5-flash-lite` on the
+  HTTP service process -- itself a live confirmation that the model
+  override works. `gemini-3.7-flash` remains the default and is unchanged.
+- Creating a real GitHub issue is inherently a one-time, deliberate action
+  against a real repository (`datascout0/product-feedback-agent` issue #1
+  was created during this validation) -- re-running the approve path again
+  against the same opportunity/cache_key correctly refuses as a duplicate
+  rather than filing a second issue, per the idempotency check above.

@@ -1195,3 +1195,228 @@ live**. Before treating full n8n analysis as demo-ready:
 A full successful live n8n analysis (intake through GitHub issue) is NOT
 yet claimed. No real GitHub issue, no real Gemini call, and no live n8n
 execution occurred during this repair.
+
+---
+
+## Stage 15 final — Live end-to-end success
+
+**Status:** Complete. Group 2 (Stages 13-15) is now fully live-validated.
+
+The controlled live retry recommended above succeeded. Full details
+(exact trace-log timestamps, durations, token counts, and the interpreted
+sequence) are recorded in `docs/results-log.md`, "2026-09-07 — Live Stage
+15 Success: n8n End-to-End Run, Reject Path, Approved GitHub Issue #1" --
+this entry only summarizes it here so Group 2's status is unambiguous
+before Group 3 begins:
+
+- The repaired HTTP-boundary n8n workflow ran live, start to finish,
+  against the user's real self-hosted n8n Docker instance and the
+  Windows-host `product_feedback_agent.api` service.
+- Two live analyst requests against the default `gemini-3.7-flash` model
+  hit that Google AI Studio project's rate limit
+  (`error_type: RateLimitError`); the environment was switched to
+  `PFA_GEMINI_MODEL=gemini-3.5-flash-lite` for continued live testing.
+  `gemini-3.7-flash` remains the recorded default; this was a runtime
+  override, not a default change.
+- A full live pipeline run (analyst -> critic -> revision, 3 model
+  requests, `revised=True`) completed, followed by a `reject` decision on
+  **Human Review & Approval** that correctly dead-ended at **No Action
+  (Rejected)** with zero GitHub calls (no `github_action` trace entry in
+  the following ten minutes).
+- A second full live pipeline run against the same cached analysis-context
+  packet (again 3 model requests, `revised=True`) completed, followed by
+  an `approve` decision that correctly created exactly one real GitHub
+  issue: `datascout0/product-feedback-agent` issue **#1**, "[Opportunity]
+  Search Result Filtering Friction" (per the human tester's direct report,
+  corroborated by the `find`/`create` entries in `logs/github-actions.jsonl`).
+
+This closes every remaining Stage 15 "HUMAN CHECKPOINT REQUIRED" item from
+every prior repair round above. No implementation code changed for this
+entry -- it is a live-validation record only. The offline suite result at
+the time was **324 passed, 1 warning** (see the "Make Gemini model
+configurable" commit and its predecessors, which added tests beyond what
+Stage 15 repair round 4's "313 passed" entry above reflects).
+
+---
+
+# Agent Progress Log — Group 3 (Stages 16-18)
+
+This section tracks autonomous progress on branch `agent/finish-mvp` for
+Group 3, the final implementation/documentation group: a deterministic
+evaluation suite, a secondary-domain reuse proof, and portfolio-quality
+documentation. Groups 1 and 2 (Stages 10-15, above) are complete and
+live-validated and are not redesigned in this group -- Stage 16 makes one
+small, additive deterministic-validation addition (see below), and nothing
+else in `src/product_feedback_agent/` changes.
+
+## Stage 16 — Deterministic evaluation suite
+
+**Status:** Complete.
+
+### Files added
+
+- `eval/__init__.py`, `eval/cases.py`, `eval/run_evaluation.py`
+- `eval/evaluation_report.json`, `eval/evaluation_report.md` (generated
+  artifacts, committed so the measured results are visible without running
+  anything)
+- `tests/test_eval_suite.py`
+
+### Files changed
+
+- `src/product_feedback_agent/validation.py`: added
+  `ValidationIssueType.DUPLICATE_OPPORTUNITY_ID` and a deterministic check
+  (`_find_duplicate_ids`) flagging any `opportunity_id` used by more than
+  one opportunity in an `AnalystOutput`. This was the one genuine gap found
+  while building the Stage 16 suite -- requirement 2 ("unique opportunity
+  IDs") had no existing deterministic check to exercise. The fix is
+  additive only: it does not touch scoring, the critic wire contract, or
+  the model-request budget, and every pre-existing `validate_analyst_output`
+  test still passes unchanged.
+- `tests/test_validation.py`: 2 new tests for the above.
+
+### What it does
+
+`eval/cases.py` defines 34 self-contained, fully offline evaluation cases
+(no shared state with `tests/`) against the real, unmodified production
+functions (`validate_analyst_output`, `compute_score`, `derive_critic_status`,
+`run_critic`, `run_pipeline`, `create_opportunity_issue`), covering all 17
+requirements in the Stage 16 task brief: exactly-3-opportunities, unique
+opportunity IDs, feedback-ID citation resolution, exact-quote verification,
+segment-support checks, evidence-count correctness, the scoring formula,
+critic status derivation, the 2-request pass / 3-request revise (never 4)
+budget, prompt-injection-as-data, GitHub approval/allow-list/idempotency
+safety, empty/weak-retrieval non-fabrication, and product-area-vs-segment
+confusion (including replaying the real 2026-09-07 analyst smoke finding
+when the gitignored local fixture is present). Every case is tagged with a
+`category` (`structure`/`grounding`/`scoring`/`critic_budget`/`safety`) and
+an `is_violation_check` flag (whether the case proves a bad input is
+correctly caught, vs. a good input passing cleanly), which
+`eval/run_evaluation.py` uses to compute exactly the four metric types the
+task brief calls "suitable": cases passed/executed, grounding checks
+passed/total, expected validation violations caught/total, and safety cases
+passed/total. No accuracy/precision/recall/quality percentage and no
+latency number is computed anywhere in this suite.
+
+`eval/run_evaluation.py` runs the suite and writes both a machine-readable
+(`evaluation_report.json`) and human-readable (`evaluation_report.md`)
+report from the measured results, exiting non-zero on any failure so it can
+also serve as a CI gate. `tests/test_eval_suite.py` wires the same case
+registry into the main `pytest` run (asserting all 34 pass and that all 17
+requirement numbers are covered) and statically proves the suite has zero
+live dependency (no real Gemini/GitHub client class is ever constructed,
+`urlopen` never appears in the module source).
+
+### Measured results
+
+`.\.venv\Scripts\python.exe -m eval.run_evaluation`:
+
+- Cases passed/executed: **34/34**
+- Grounding checks passed/total: **10/10**
+- Expected validation violations caught/total: **19/19**
+- Safety cases passed/total: **9/9**
+
+### Test result
+
+`.\.venv\Scripts\python.exe -m pytest -q`: **329 passed, 1 warning** (326
+baseline + 2 duplicate-ID unit tests + 3 eval-suite wiring tests). 0
+failures, 0 errors, no network/Gemini/GitHub requests made.
+
+### Unresolved issues / human validation needed
+
+None. This suite is fully offline by design and requires no human
+verification step.
+
+---
+
+## Stage 17 — Secondary-domain reuse proof
+
+**Status:** Complete.
+
+### Files added
+
+- `data/samples/secondary_domain/onboarding_feedback.csv` (8 records)
+- `data/samples/secondary_domain/onboarding_strategy.md` (4 sections)
+- `tests/test_secondary_domain.py` (6 tests)
+
+### What it does
+
+A small, realistic synthetic dataset in a customer onboarding/support/
+workflow-friction domain -- deliberately different product areas
+(`sso`, `onboarding`, `workflow`, `notifications`) and segments
+(`enterprise`, `smb`, `startup`) from the primary search/reporting/mobile
+feedback used everywhere else in this project. The tests ingest it with
+the unmodified `load_feedback_file`/`load_context_file`, index and retrieve
+it through the real (unmodified) `SemanticRetrieval`/Chroma path using the
+same deterministic offline bag-of-words embedder pattern already used in
+`tests/test_retrieval.py`, and run it through the real (unmodified) Stage
+13 `orchestrator.run_analysis` with fake analyst/critic clients (no live
+Gemini call) that cite this dataset's real feedback/context IDs.
+
+Verified: the dataset ingests cleanly (8/8 valid, 0 duplicates); retrieval
+indexes and returns all of it; the shared pipeline produces exactly 3
+opportunities with zero unresolved deterministic validation issues (every
+citation and quote resolves); the same 2-request pass-path budget and
+`pending_review` human-approval boundary hold; `evidence_count` for each
+opportunity matches its distinct cited feedback IDs; each opportunity's
+score matches the same `compute_score` formula (imported and called
+directly, not reimplemented); and none of the ten core pipeline modules
+contain the literal strings `onboarding`, `sso`, or `startup` -- i.e., no
+domain-specific branch or conditional exists anywhere in the core pipeline.
+
+**Changed between domains:** DATA + CONTEXT only.
+**Unchanged:** CORE ARCHITECTURE, SCHEMAS, VALIDATION, SCORING, CRITIC
+CONTRACT, HUMAN APPROVAL MODEL.
+
+### Test result
+
+`.\.venv\Scripts\python.exe -m pytest -q`: **335 passed, 1 warning** (329
+baseline + 6 new). 0 failures, 0 errors, no network/Gemini/GitHub requests
+made.
+
+### Unresolved issues / human validation needed
+
+None. This proof is fully offline by design.
+
+---
+
+## Stage 18 — README / architecture / demo / portfolio documentation
+
+**Status:** Complete.
+
+### Files added/changed
+
+- `README.md` -- rewritten as portfolio-facing documentation (problem,
+  target user, principles, architecture summary, evidence-grounding design,
+  deterministic validation/scoring, critic/revision, human approval/GitHub
+  safety, model configuration, n8n integration, evaluation approach and
+  measured results, secondary-domain reuse proof, limitations, local
+  setup/run instructions, demo flow).
+- `docs/architecture.md` -- a Mermaid diagram of the full pipeline
+  (ingestion -> local embeddings/Chroma -> retrieval -> Gemini analyst ->
+  deterministic validation/scoring -> Gemini critic -> optional single
+  revision -> human review -> approved GitHub action), including the n8n
+  orchestration layer, the Python HTTP bridge, the 2/3 request ceiling, and
+  which components are deterministic vs. model-controlled.
+- `docs/demo-script.md` -- a concise, portfolio-appropriate demo script
+  using only what is actually implemented and live-validated.
+- `docs/screenshots.md` -- identifies which parts of the demo are best
+  shown as a screenshot (n8n reject/approve paths, the human approval
+  form, the real created GitHub issue) vs. which are already better
+  evidenced by committed test/evaluation output, without fabricating any
+  screenshot.
+- `docs/portfolio-bullets.md` -- CV/portfolio bullets grounded only in what
+  was actually built and measured; no fabricated users, revenue, adoption,
+  or time-savings claims.
+- `docs/implementation-checklist.md` -- rewritten in clean UTF-8 (fixing a
+  pre-existing mojibake encoding issue from an earlier save) and updated to
+  reflect Stage 16/17/18 completion and the live Stage 15 GitHub issue.
+- `docs/n8n-setup.md` -- the top "HUMAN CHECKPOINT REQUIRED" banner and the
+  closing "what was NOT done" section were updated to reflect the Stage 15
+  final live success recorded above; nothing about the workflow itself
+  changed in this stage.
+
+### Unresolved issues / human validation needed
+
+Screenshots themselves (as opposed to the plan for which ones matter) are a
+human action against the live n8n/GitHub UI and are not captured by Claude
+Code -- see `docs/screenshots.md`.

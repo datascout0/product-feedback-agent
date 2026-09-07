@@ -1381,6 +1381,9 @@ This is the same failure family recorded twice before in this log
 ("Critic Contract Failure and Fix" and "Second Critic Contract Failure and
 Schema-Level Fix", both above, both `2026-09-07`), now observed a third
 time, against a stronger schema-level enforcement than either prior fix.
+(Note: this specific failure was resolved by the redundant-`status` removal
+described in this entry and is superseded by the successful live run
+recorded below, "Live Stage 15 Success".)
 
 ### Conclusion
 
@@ -1480,3 +1483,228 @@ instruction, to determine whether the redundant-`status` removal resolves
 the critic failure in practice. The two prior critic-contract failures
 recorded above, and this third one, are preserved as-is in this log as
 reliability findings -- not erased or superseded, only built upon.
+
+---
+
+## 2026-09-07 — Live Stage 15 Success: n8n End-to-End Run, Reject Path, Approved GitHub Issue #1
+
+### Status
+
+**Group 2 (Stages 13-15) is now live-validated end-to-end.** The controlled
+live retry recommended above succeeded: the redundant-`status` removal
+resolved the critic failure family recorded in the three entries above. This
+entry records only what is directly evidenced by `logs/model-calls.jsonl`
+and `logs/github-actions.jsonl` (both gitignored, local-only trace files) as
+they existed at the time of writing, plus the human tester's direct report
+of the GitHub issue this produced. Nothing below is estimated.
+
+### Gemini rate limit encountered, then resolved via `PFA_GEMINI_MODEL`
+
+Two consecutive live analyst requests against the default `gemini-3.7-flash`
+model failed with `error_type: RateLimitError` (traces at `18:15:03` and
+`18:26:04`, both `stage: analyst`, both `success: false`, no `usage` block --
+the request never reached generation). This is the same restrictive
+Google AI Studio quota recorded in `docs/decisions.md` D005. The environment
+was reconfigured with `PFA_GEMINI_MODEL=gemini-3.5-flash-lite` (see
+`docs/agent-progress.md`'s Gemini-model-configurable stage) and the next
+live request succeeded on that model. `gemini-3.7-flash` remains the
+recorded default in `src/product_feedback_agent/gemini_model.py`; this was a
+runtime override for continued live testing, not a change to the default.
+
+### Full live pipeline run #1 (model-config validation, `gemini-3.5-flash-lite`)
+
+Trace log, `cache_key` `73f2c55e263dec3687ccd8f025455b3516aa7cedf9c2475964172838070c31b5`:
+
+- analyst: `20:58:45`, duration 12.063s, total_tokens 6,024, success true
+- critic: `20:58:50`, duration 5.0s, total_tokens 7,463, success true
+- revision: `20:58:58`, duration 8.281s, total_tokens 8,907, success true
+
+`model_request_count = 3` (analyst + critic + one revision, `revised = True`,
+no fourth request). No entry appears in `logs/github-actions.jsonl` in the
+following ten minutes.
+
+### Full live pipeline run #2, same cache_key (the end-to-end n8n run)
+
+Trace log, same `cache_key` (`73f2c55e...`):
+
+- analyst: `21:08:41`, duration 12.141s, total_tokens 6,135, success true
+- critic: `21:08:45`, duration 4.515s, total_tokens 7,555, success true
+- revision: `21:08:54`, duration 8.516s, total_tokens 9,097, success true
+
+`model_request_count = 3` again (`revised = True`). Measured totals for this
+run: 25.172s model-call duration, 22,787 total reported tokens, all on
+`gemini-3.5-flash-lite`.
+
+### GitHub action trace, immediately following run #2
+
+`logs/github-actions.jsonl`:
+
+- `find`, repo `datascout0/product-feedback-agent`, `21:11:42`, duration
+  0.328s, `found: false`, success true
+- `create`, repo `datascout0/product-feedback-agent`, `21:11:43`, duration
+  0.579s, success true
+
+### Interpretation
+
+The trace-log timestamps, taken together with the human tester's direct
+report, are consistent with the following live sequence through the n8n
+workflow described in `docs/n8n-setup.md`:
+
+1. Intake form submitted -> **Run Analysis (HTTP)** -> full live pipeline
+   run #1 above (3 model requests, revised).
+2. **Human Review & Approval** submitted with `Decision = reject` -> **No
+   Action (Rejected)** reached. No GitHub call was made for this run --
+   confirmed by the absence of any `github_action` trace entry between
+   `20:58:58` (end of run #1) and `21:08:41` (start of run #2). This is the
+   live confirmation of the "rejected paths cannot mutate GitHub" safety
+   property (also proven offline in `tests/test_n8n_workflow.py` and
+   `eval/cases.py`).
+3. Intake form submitted again -> full live pipeline run #2 above (3 model
+   requests, revised, same cached analysis-context packet).
+4. **Human Review & Approval** submitted with `Decision = approve`, a real
+   `opportunity_id`, and repo `datascout0/product-feedback-agent` ->
+   **Approval Gate** passed -> `POST /github/issues` -> the GitHub trace
+   above: no existing idempotency marker found, one issue created.
+5. Per the human tester's direct report, the created issue is
+   `datascout0/product-feedback-agent` issue **#1**, titled
+   **"[Opportunity] Search Result Filtering Friction"**.
+
+This closes every remaining Stage 15 "HUMAN CHECKPOINT REQUIRED" item
+recorded in the entries above and in `docs/agent-progress.md`: the
+HTTP-boundary workflow runs live against the real n8n Docker instance and
+the Windows-host API; the human approval form works live; the reject path
+was live-confirmed to make zero GitHub calls; and the approve path was
+live-confirmed to create exactly one real, evidence-backed GitHub issue.
+
+### Model provenance (do not conflate)
+
+- `gemini-3.7-flash` is, and remains, the project's default/reference model
+  (`docs/decisions.md` D005, `src/product_feedback_agent/gemini_model.py`).
+  Every measured result in this file dated before this entry that does not
+  otherwise say so was produced against `gemini-3.7-flash`.
+- `gemini-3.5-flash-lite` was used only for this specific integration
+  validation, after `gemini-3.7-flash` hit a live rate limit, via the
+  `PFA_GEMINI_MODEL` override added in the "Make Gemini model configurable"
+  change. It is a supported, tested, configurable option -- not a change to
+  the default.
+
+### Automated test result (unchanged by this entry)
+
+No implementation code changed for this entry; it is a live-validation
+record only. The offline suite result at the time of writing was **324
+passed, 1 warning** (see `docs/agent-progress.md` for the exact commit this
+corresponds to); Stage 16/17 entries below record the counts after their
+own, separate, implementation changes.
+
+---
+
+## 2026-09-07 — Stage 16: Deterministic Evaluation Suite
+
+### Implementation
+
+Added `eval/cases.py` (34 offline evaluation cases covering the 17
+requirements in the Stage 16 task brief), `eval/run_evaluation.py` (runs the
+suite and writes `eval/evaluation_report.json` / `eval/evaluation_report.md`
+from the measured results), and `tests/test_eval_suite.py` (wires the same
+cases into the main pytest run). Also added one small, additive deterministic
+check to `src/product_feedback_agent/validation.py`:
+`ValidationIssueType.DUPLICATE_OPPORTUNITY_ID`, flagging any `opportunity_id`
+value used by more than one opportunity in an `AnalystOutput` -- the Stage 16
+brief's "unique opportunity IDs" requirement had no existing deterministic
+check. This does not change scoring, the critic wire contract, or the
+model-request budget.
+
+Zero live Gemini calls, zero live GitHub mutations, zero network dependency
+anywhere in this suite (statically verified by
+`tests/test_eval_suite.py::test_evaluation_suite_has_no_live_dependency`).
+
+### Measured evaluation results
+
+Command: `.\.venv\Scripts\python.exe -m eval.run_evaluation`
+
+- Cases passed / executed: **34 / 34**
+- Grounding checks passed / total: **10 / 10**
+- Expected validation violations caught / total: **19 / 19**
+- Safety cases passed / total: **9 / 9**
+
+Full per-case detail is in the committed `eval/evaluation_report.md` /
+`eval/evaluation_report.json` (regenerated by re-running the command above;
+timestamps will differ on re-run, case results will not). No accuracy,
+precision, recall, or quality percentage, and no latency number, is computed
+or claimed anywhere in this suite -- see that report's final section.
+
+### Automated test result
+
+Command: `.\.venv\Scripts\python.exe -m pytest -q`
+
+Result: **329 passed, 1 warning** (326 baseline + 2 new
+`DUPLICATE_OPPORTUNITY_ID` unit tests in `tests/test_validation.py` + 3 new
+`tests/test_eval_suite.py` tests wiring in the 34 eval cases). 0 failures, 0
+errors, no network/Gemini/GitHub requests made.
+
+---
+
+## 2026-09-07 — Stage 17: Secondary-Domain Reuse Proof
+
+### Implementation
+
+Added a small synthetic secondary-domain dataset,
+`data/samples/secondary_domain/` (`onboarding_feedback.csv`, 8 records;
+`onboarding_strategy.md`, 4 sections), in a customer onboarding/support/
+workflow-friction domain deliberately distinct from the primary
+search/reporting/mobile/notifications feedback used everywhere else in this
+project. Added `tests/test_secondary_domain.py` (6 tests), which ingests
+this dataset, indexes and retrieves it through the real (unmodified)
+`SemanticRetrieval`/Chroma path with a deterministic offline embedder, and
+runs it through the real (unmodified) Stage 13 `orchestrator.run_analysis`
+with fake analyst/critic clients (no live Gemini call).
+
+### Measured results
+
+Command: `.\.venv\Scripts\python.exe -m pytest -q tests/test_secondary_domain.py -v`
+
+Result: **6 passed**, verifying:
+
+- the secondary-domain feedback CSV ingests: 8/8 valid records, 0 invalid, 0
+  duplicates, stable IDs
+- the secondary-domain context Markdown ingests: 4 sections with the
+  expected headings
+- the real `SemanticRetrieval` (Chroma-backed) indexes and returns all 8
+  feedback records and all 5 context sections for this dataset
+- the shared pipeline produces exactly 3 opportunities
+  (`opp_sso_setup`, `opp_checklist_clarity`, `opp_workflow_visibility`),
+  all citations/quotes resolve (`validation_result.is_valid` is `True`,
+  `unresolved_issue_count == 0`), the same 2-request pass-path budget holds
+  (`model_request_count == 2`, `revised == False`), and the same
+  `human_review_status == pending_review` boundary applies
+- `evidence_count` for each opportunity matches its distinct cited
+  feedback IDs exactly (3, 2, 2)
+- each opportunity's deterministic score total matches the same
+  `compute_score` formula used everywhere else in this project (not a
+  reimplementation)
+- `src/product_feedback_agent/{analyst,critic,pipeline,validation,
+  orchestrator,analysis_context,retrieval,github_action,ingestion,
+  context}.py` contain no occurrence of `onboarding`, `sso`, or `startup` --
+  i.e., no domain-specific branch or conditional exists anywhere in the core
+  pipeline for this second dataset to work.
+
+### What changed vs. what did not
+
+**Changed between domains:** DATA + CONTEXT only (the two files under
+`data/samples/secondary_domain/`).
+
+**Unchanged:** CORE ARCHITECTURE, SCHEMAS (`FeedbackInput`/`FeedbackRecord`,
+`ContextDocument`/`ContextSection`, `AnalystOutput`/`OpportunityDraft`,
+`OrchestrationResult`), VALIDATION (`validate_analyst_output` and every
+`ValidationIssueType`), SCORING (`compute_score`, the same locked weights),
+CRITIC CONTRACT (`CriticWireResponse`/`derive_critic_status`), and the HUMAN
+APPROVAL MODEL (`HumanReviewStatus.PENDING_REVIEW`, `create_opportunity_issue`
+unmodified and untouched by this stage).
+
+### Automated test result
+
+Command: `.\.venv\Scripts\python.exe -m pytest -q`
+
+Result: **335 passed, 1 warning** (329 baseline + 6 new
+`tests/test_secondary_domain.py` tests). 0 failures, 0 errors, no
+network/Gemini/GitHub requests made.
