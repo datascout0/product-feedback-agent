@@ -33,9 +33,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from product_feedback_agent.analysis_context import AnalysisContextPacket
 from product_feedback_agent.analyst import AnalystOutput
+from product_feedback_agent.gemini_model import resolve_gemini_model
 from product_feedback_agent.validation import ValidationResult
 
-MODEL_NAME = "gemini-3.7-flash"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 DEFAULT_LOG_PATH = "logs/model-calls.jsonl"
 
@@ -342,11 +342,13 @@ class GeminiCriticClient:
         self, *, prompt: str, response_schema: dict[str, Any], cache_key: str
     ) -> str:
         start = time.monotonic()
+        model = resolve_gemini_model()
 
         api_key = os.environ.get(GEMINI_API_KEY_ENV)
         if not api_key:
             self._trace(
                 cache_key=cache_key,
+                model=model,
                 success=False,
                 duration=time.monotonic() - start,
                 error_type="MissingAPIKeyError",
@@ -363,7 +365,7 @@ class GeminiCriticClient:
         try:
             gemini_client = genai.Client(api_key=api_key)
             response = gemini_client.interactions.create(
-                model=MODEL_NAME,
+                model=model,
                 input=prompt,
                 response_format={
                     "type": "text",
@@ -376,6 +378,7 @@ class GeminiCriticClient:
             # details, and we must not risk leaking the API key into logs.
             self._trace(
                 cache_key=cache_key,
+                model=model,
                 success=False,
                 duration=time.monotonic() - start,
                 error_type=type(exc).__name__,
@@ -386,6 +389,7 @@ class GeminiCriticClient:
         if not output_text:
             self._trace(
                 cache_key=cache_key,
+                model=model,
                 success=False,
                 duration=time.monotonic() - start,
                 error_type="EmptyOutputError",
@@ -394,6 +398,7 @@ class GeminiCriticClient:
 
         self._trace(
             cache_key=cache_key,
+            model=model,
             success=True,
             duration=time.monotonic() - start,
             usage=getattr(response, "usage", None),
@@ -404,6 +409,7 @@ class GeminiCriticClient:
         self,
         *,
         cache_key: str,
+        model: str,
         success: bool,
         duration: float,
         error_type: str | None = None,
@@ -412,7 +418,7 @@ class GeminiCriticClient:
         record: dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "stage": "critic",
-            "model": MODEL_NAME,
+            "model": model,
             "cache_key": cache_key,
             "success": success,
             "duration_seconds": round(duration, 3),

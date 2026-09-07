@@ -1,4 +1,6 @@
 import json
+import sys
+import types
 
 import pytest
 
@@ -13,6 +15,7 @@ from product_feedback_agent.critic import CriticStatus
 from product_feedback_agent.pipeline import (
     MAX_PASSING_RUN_REQUESTS,
     MAX_REVISION_RUN_REQUESTS,
+    GeminiRevisionClient,
     RevisionError,
     build_revision_prompt,
     run_pipeline,
@@ -400,3 +403,83 @@ def test_run_revision_raises_on_empty_output():
 
     with pytest.raises(RevisionError):
         run_revision(packet, analyst_output, validation_result, critic_output, client=EmptyClient())
+
+
+# ---------------------------------------------------------------------------
+# Real client happy path: fully mocked google.genai, still no real network
+# ---------------------------------------------------------------------------
+
+
+class _FakeInteractions:
+    def __init__(self, output_text: str, usage: dict | None) -> None:
+        self._output_text = output_text
+        self._usage = usage
+        self.create_calls: list[dict] = []
+
+    def create(self, **kwargs):
+        self.create_calls.append(kwargs)
+        return types.SimpleNamespace(output_text=self._output_text, usage=self._usage)
+
+
+class _FakeGenAIClient:
+    def __init__(self, api_key: str, interactions: _FakeInteractions) -> None:
+        self.api_key = api_key
+        self.interactions = interactions
+
+
+def _install_fake_genai(monkeypatch, interactions: _FakeInteractions) -> None:
+    fake_genai_module = types.ModuleType("google.genai")
+    fake_genai_module.Client = lambda api_key: _FakeGenAIClient(api_key, interactions)
+
+    fake_google_module = types.ModuleType("google")
+    fake_google_module.genai = fake_genai_module
+
+    monkeypatch.setitem(sys.modules, "google", fake_google_module)
+    monkeypatch.setitem(sys.modules, "google.genai", fake_genai_module)
+
+
+def test_real_revision_client_success_writes_trace_without_api_key(monkeypatch, tmp_path):
+    secret_key = "sekrit-test-key-do-not-leak"
+    monkeypatch.setenv("GEMINI_API_KEY", secret_key)
+    monkeypatch.delenv("PFA_GEMINI_MODEL", raising=False)
+
+    payload = json.dumps({"opportunities": _three_opportunities()})
+    interactions = _FakeInteractions(output_text=payload, usage={"input_tokens": 100, "output_tokens": 50})
+    _install_fake_genai(monkeypatch, interactions)
+
+    log_path = tmp_path / "model-calls.jsonl"
+    client = GeminiRevisionClient(log_path=log_path)
+
+    raw = client.generate_structured(prompt="revise this", response_schema={}, cache_key="ck123")
+
+    assert raw == payload
+    assert len(interactions.create_calls) == 1
+    assert interactions.create_calls[0]["model"] == "gemini-3.7-flash"
+
+    log_contents = log_path.read_text(encoding="utf-8")
+    assert secret_key not in log_contents
+
+    record = json.loads(log_contents.strip().splitlines()[0])
+    assert record["success"] is True
+    assert record["stage"] == "revision"
+    assert record["model"] == "gemini-3.7-flash"
+    assert record["cache_key"] == "ck123"
+
+
+def test_real_revision_client_honors_pfa_gemini_model_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("GEMINI_API_KEY", "another-secret-key")
+    monkeypatch.setenv("PFA_GEMINI_MODEL", "gemini-3.5-flash-lite")
+
+    payload = json.dumps({"opportunities": _three_opportunities()})
+    interactions = _FakeInteractions(output_text=payload, usage=None)
+    _install_fake_genai(monkeypatch, interactions)
+
+    log_path = tmp_path / "model-calls.jsonl"
+    client = GeminiRevisionClient(log_path=log_path)
+
+    client.generate_structured(prompt="revise this", response_schema={}, cache_key="ck789")
+
+    assert interactions.create_calls[0]["model"] == "gemini-3.5-flash-lite"
+
+    record = json.loads(log_path.read_text(encoding="utf-8").strip().splitlines()[0])
+    assert record["model"] == "gemini-3.5-flash-lite"

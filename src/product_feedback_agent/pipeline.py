@@ -39,9 +39,9 @@ from product_feedback_agent.critic import (
     CriticStatus,
     run_critic,
 )
+from product_feedback_agent.gemini_model import resolve_gemini_model
 from product_feedback_agent.validation import ValidationResult, validate_analyst_output
 
-MODEL_NAME = "gemini-3.7-flash"
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 DEFAULT_LOG_PATH = "logs/model-calls.jsonl"
 
@@ -184,11 +184,13 @@ class GeminiRevisionClient:
         self, *, prompt: str, response_schema: dict[str, Any], cache_key: str
     ) -> str:
         start = time.monotonic()
+        model = resolve_gemini_model()
 
         api_key = os.environ.get(GEMINI_API_KEY_ENV)
         if not api_key:
             self._trace(
                 cache_key=cache_key,
+                model=model,
                 success=False,
                 duration=time.monotonic() - start,
                 error_type="MissingAPIKeyError",
@@ -205,7 +207,7 @@ class GeminiRevisionClient:
         try:
             gemini_client = genai.Client(api_key=api_key)
             response = gemini_client.interactions.create(
-                model=MODEL_NAME,
+                model=model,
                 input=prompt,
                 response_format={
                     "type": "text",
@@ -218,6 +220,7 @@ class GeminiRevisionClient:
             # details, and we must not risk leaking the API key into logs.
             self._trace(
                 cache_key=cache_key,
+                model=model,
                 success=False,
                 duration=time.monotonic() - start,
                 error_type=type(exc).__name__,
@@ -228,6 +231,7 @@ class GeminiRevisionClient:
         if not output_text:
             self._trace(
                 cache_key=cache_key,
+                model=model,
                 success=False,
                 duration=time.monotonic() - start,
                 error_type="EmptyOutputError",
@@ -236,6 +240,7 @@ class GeminiRevisionClient:
 
         self._trace(
             cache_key=cache_key,
+            model=model,
             success=True,
             duration=time.monotonic() - start,
             usage=getattr(response, "usage", None),
@@ -246,6 +251,7 @@ class GeminiRevisionClient:
         self,
         *,
         cache_key: str,
+        model: str,
         success: bool,
         duration: float,
         error_type: str | None = None,
@@ -254,7 +260,7 @@ class GeminiRevisionClient:
         record: dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "stage": "revision",
-            "model": MODEL_NAME,
+            "model": model,
             "cache_key": cache_key,
             "success": success,
             "duration_seconds": round(duration, 3),

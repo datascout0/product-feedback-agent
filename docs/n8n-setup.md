@@ -131,10 +131,26 @@ regardless of what request it receives.
   - On the **Windows host**, for the HTTP service process: `GEMINI_API_KEY`
     (required by the analyst/critic/revision pipeline), `GITHUB_TOKEN`
     (required only for the approved GitHub-action step), `PFA_API_HOST` /
-    `PFA_API_PORT` (optional; default `0.0.0.0:8000`).
+    `PFA_API_PORT` (optional; default `0.0.0.0:8000`), `PFA_GEMINI_MODEL`
+    (optional — see below).
   - On the **n8n process** (optional): `PFA_API_BASE_URL` — overrides the
     default `http://host.docker.internal:8000` target if your setup needs a
     different host/port. Not required for the standard Docker Desktop case.
+
+### Gemini runtime model (`PFA_GEMINI_MODEL`)
+
+The analyst, critic, and revision stages all resolve their Gemini model
+from a single shared helper, so they always agree on which model is
+actually in use for a given run.
+
+- **Default/reference model** (unset `PFA_GEMINI_MODEL`): `gemini-3.7-flash`
+- **Development/integration testing**: set
+  `PFA_GEMINI_MODEL=gemini-3.5-flash-lite` on the HTTP service process
+  before starting it, to exercise the pipeline against a cheaper/faster
+  model without touching the pipeline code or the request-count budget.
+
+This repo does not claim any specific quota numbers for either model —
+check your own Gemini API plan for current limits.
 
 None of these values are stored in the workflow JSON or in this repository.
 
