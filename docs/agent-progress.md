@@ -950,3 +950,98 @@ approval step as demo-ready:
 
 No real GitHub issue, no real Gemini call, and no live n8n execution
 occurred during this repair.
+
+## Stage 15 repair round 3 — Removed `$env` dependency from HTTP node URLs
+
+**Status:** Complete (JSON-level repair). One final live re-import
+validation still required. Group 3 has NOT been started.
+
+### Live validation results (2026-09-07)
+
+Re-testing the human-approval-form-repaired workflow (commit `6ab44f1`)
+against the user's real self-hosted n8n Docker instance, on Windows,
+confirmed:
+
+1. The repaired workflow imported correctly, including "Human Review &
+   Approval" showing Page Type = Next Form Page, Define Form = Using
+   JSON, with correct Decision/opportunity_id/repo fields (round-2 repair
+   confirmed live).
+2. The Windows HTTP service was live: `GET http://localhost:8000/health`
+   returned `status=ok`.
+
+### Live finding
+
+The first real execution failed in "Run Analysis (HTTP)" with `access to
+env vars denied`. The installed n8n instance blocks node expressions from
+reading environment variables at all, so the URL expression that fell
+back to `http://host.docker.internal:8000` when an override variable was
+unset could not evaluate. No request reached the Python API and no Gemini
+call was made.
+
+### Repair
+
+Removed the environment-variable read from both HTTP Request node URLs in
+`n8n/workflows/product-feedback-agent.json`, replacing each with a plain,
+hardcoded, non-secret local Docker Desktop endpoint string (no `={{ }}`
+expression needed, since the value is now static):
+
+- "Run Analysis (HTTP)": `http://host.docker.internal:8000/analyze`
+- "Create GitHub Issue (Approved)": `http://host.docker.internal:8000/github/issues`
+
+Both node `notes` fields were updated to record the live finding. The
+Python API process remains solely responsible for its own Gemini/GitHub
+credentials; n8n never receives or stores them -- this was already true
+before this repair and is unchanged by it. No other node, connection, or
+field changed: HTTP Request node types, the intake form, JSON request
+bodies, the human approval form, the exact Decision/opportunity_id/repo
+fields, the Approval Gate, the rejected dead-end path, and the
+approved-only GitHub path are all preserved exactly as in round 2.
+
+### Tests
+
+`tests/test_n8n_workflow.py` grew from 28 to 32 tests (4 new): the
+workflow file contains no `$env` expression anywhere; contains no
+reference to the removed environment-variable override name anywhere;
+the "Run Analysis (HTTP)" URL is exactly
+`http://host.docker.internal:8000/analyze`; and the "Create GitHub Issue
+(Approved)" URL is exactly
+`http://host.docker.internal:8000/github/issues`. All pre-existing
+round-1/round-2 tests (Execute Command absence, HTTP node types, rejection
+path dead-end, approval-gate field names, Human Review page-type/JSON-form
+checks, no embedded secrets) were re-run unmodified and still pass against
+the new hardcoded URLs.
+
+### Test result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result: **305 / 305 passed** (301 baseline + 4 new). 0 failures, 0 errors.
+`git diff --check` reported no whitespace errors. No network, Gemini,
+GitHub, or live n8n execution occurred during this repair -- it was
+applied statically against the JSON file based on the live finding above.
+
+### Unresolved issues / human validation needed
+
+**HUMAN CHECKPOINT REQUIRED**: this JSON-level repair has **not yet been
+re-imported into the live n8n instance**. Before treating the workflow as
+demo-ready:
+
+1. Re-import `n8n/workflows/product-feedback-agent.json` and confirm
+   "Run Analysis (HTTP)" now shows the plain
+   `http://host.docker.internal:8000/analyze` URL with no expression
+   editor error.
+2. Submit the intake form once and confirm the request actually reaches
+   the Windows-host Python API this time (check the API process's own
+   logs / the `Parse Orchestration Result` node's output), producing a
+   real Gemini-backed analysis result for the first time in this workflow.
+3. Continue through Human Review & Approval and confirm both the
+   reject-path dead-end and the approve-path GitHub-issue creation
+   (against a disposable demo repo) still work end-to-end, now that a
+   request can actually reach the API -- these, plus the checks listed in
+   round 2, remain the required live checks before Group 3 (or any real
+   GitHub/Gemini call) begins.
+
+No real GitHub issue, no real Gemini call, and no live n8n execution
+occurred during this repair.

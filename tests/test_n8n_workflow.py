@@ -345,3 +345,34 @@ def test_human_review_node_is_not_a_form_ending_page():
     assert node["parameters"]["operation"] != "completion"
     raw = json.dumps(node["parameters"])
     assert "Form Ending" not in raw
+
+
+# ---------------------------------------------------------------------------
+# Live finding (2026-09-07): the installed n8n instance blocks $env access
+# from node expressions ("access to env vars denied"), so "Run Analysis
+# (HTTP)" failed before any request reached the Windows-host Python service.
+# The workflow's two HTTP Request node URLs are now hardcoded, non-secret
+# host.docker.internal endpoints instead of reading $env.PFA_API_BASE_URL.
+# ---------------------------------------------------------------------------
+
+
+def test_workflow_contains_no_env_expression():
+    raw = WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "$env" not in raw
+
+
+def test_workflow_contains_no_pfa_api_base_url_reference():
+    raw = WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "PFA_API_BASE_URL" not in raw
+
+
+def test_analyze_http_request_url_is_exactly_the_hardcoded_endpoint():
+    workflow = _load_workflow()
+    node = next(n for n in workflow["nodes"] if n["name"] == "Run Analysis (HTTP)")
+    assert node["parameters"]["url"] == "http://host.docker.internal:8000/analyze"
+
+
+def test_github_http_request_url_is_exactly_the_hardcoded_endpoint():
+    workflow = _load_workflow()
+    node = next(n for n in workflow["nodes"] if n["name"] == "Create GitHub Issue (Approved)")
+    assert node["parameters"]["url"] == "http://host.docker.internal:8000/github/issues"

@@ -1269,3 +1269,78 @@ reconfiguration, and a real approve/reject submission reaches the
 Approval Gate with the expected field values. No real GitHub issue was
 created and no real Gemini call was made during this repair. Group 3 has
 not been started.
+
+## 2026-09-07 — Stage 15 Live Validation Round 3 — `$env` access denied
+
+### Live validation results
+
+The human-approval-form-repaired workflow (commit `6ab44f1`) was
+re-imported into the user's real self-hosted n8n Docker instance, on
+Windows:
+
+1. The workflow imported correctly; "Human Review & Approval" showed
+   Page Type = Next Form Page, Define Form = Using JSON, with correct
+   Decision/opportunity_id/repo fields -- confirming the round-2 human
+   approval form repair live.
+2. The Windows HTTP service was live: `GET http://localhost:8000/health`
+   returned `status=ok`.
+
+### Live finding
+
+The first real n8n test failed in "Run Analysis (HTTP)" with `access to
+env vars denied`. The installed n8n instance blocks `$env` access from
+node expressions, so the URL expression that read an environment-variable
+override (falling back to `http://host.docker.internal:8000`) could not
+evaluate. No request reached the Python API and no Gemini call was made.
+
+### Repair
+
+Removed the environment-variable read from both HTTP Request node URLs
+in `n8n/workflows/product-feedback-agent.json`. Each now uses a plain,
+hardcoded, non-secret local Docker Desktop endpoint string instead:
+
+- "Run Analysis (HTTP)": `http://host.docker.internal:8000/analyze`
+- "Create GitHub Issue (Approved)": `http://host.docker.internal:8000/github/issues`
+
+The Python API process remains responsible for its own `GEMINI_API_KEY`,
+`GITHUB_TOKEN`, and `GITHUB_DEMO_REPO` configuration; n8n does not
+receive or store those secrets. No other node, connection, or field
+changed.
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**305 / 305 tests passed** (301 baseline + 4 new).
+
+Breakdown:
+
+- `tests/test_n8n_workflow.py` grew from 28 to 32 tests (4 new): the
+  workflow file contains no `$env` expression anywhere; contains no
+  reference to the removed environment-variable override name; the
+  "Run Analysis (HTTP)" URL is exactly
+  `http://host.docker.internal:8000/analyze`; the "Create GitHub Issue
+  (Approved)" URL is exactly
+  `http://host.docker.internal:8000/github/issues`.
+- All 301 previously-passing tests remained passing, unmodified.
+- 0 failures, 0 errors.
+- `git diff --check` reported no whitespace errors.
+- No network, Gemini, or GitHub requests were made in the test suite. No
+  live n8n instance was reached during this repair -- it was applied
+  statically against the JSON file based on the live finding above.
+
+### Status
+
+**Not yet fully re-verified live.** The workflow has not been
+re-imported into the live n8n instance since this repair. One final live
+re-import/re-test is still required: confirm "Run Analysis (HTTP)" now
+shows the plain hardcoded URL with no expression error, and that a real
+form submission actually reaches the Windows-host Python API (and, from
+there, produces a real Gemini-backed analysis and, on approval, a real
+GitHub issue against a disposable demo repo) for the first time in this
+workflow. No real GitHub issue was created and no real Gemini call was
+made during this repair. Group 3 has not been started.
