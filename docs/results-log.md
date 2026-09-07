@@ -420,3 +420,58 @@ Result:
 **91 / 91 tests passed**
 
 The suite includes a regression test verifying that a lower-ranked result with higher diversity gain is preferred over the immediately next semantic result.
+---
+
+## 2026-09-07 — MCP Server and Inspector Validation
+
+### Implementation
+
+Implemented the MCP v2 server for Product Feedback Agent using MCP SDK 2.1.1.
+
+Exposed read-only tools:
+
+- `prepare_analysis_context`
+- `search_feedback`
+
+The future `create_opportunity_issue` write tool is intentionally not exposed yet.
+
+### Reusability
+
+- input paths resolve relative to the cloned project root rather than process cwd
+- absolute paths remain supported
+- persistent Chroma storage is anchored under the project root
+- analysis-context cache is anchored under the project root
+- no user-specific absolute paths are hard-coded
+- Sentence Transformer loading remains lazy
+
+### Automated Test Result
+
+**113 / 113 tests passed**
+
+### MCP Inspector Validation
+
+Validated the server through MCP Inspector.
+
+`prepare_analysis_context` successfully returned:
+
+- dataset statistics
+- retrieved feedback
+- retrieved product context
+- diverse feedback sample
+- stable feedback IDs
+- stable document IDs
+- stable section IDs
+- cache key
+- retrieval parameters
+
+A non-default `diverse_sample_size=3` produced exactly 3 diverse feedback records.
+
+`search_feedback` was called after preparation without resending the feedback file.
+
+With `top_k=3`, it returned exactly 3 results.
+
+The two strongest results were the two feedback records:
+
+`Search results are hard to filter.`
+
+This confirms MCP parameter handling, persistent indexed retrieval, and structured output through the actual MCP protocol.
