@@ -20,6 +20,9 @@ dev = [
     "pytest>=9,<10"
 ]
 
+[project.scripts]
+product-feedback-agent = "product_feedback_agent.orchestrator:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

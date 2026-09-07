@@ -378,13 +378,99 @@ not been started.
 
 ---
 
-## Next step (Group 2)
+# Agent Progress Log — Group 2 (Stages 13-15)
 
-Group 1 (Stages 10-12) is complete and **live-validated** (see Stage 12d).
-Group 2 work -- explicitly out of scope for this session -- starts with:
-end-to-end n8n integration wiring analyst -> validator -> critic ->
-revision -> human approval, GitHub issue creation (dry-run first, then one
-approved real issue), the evaluation suite, and secondary-domain reuse. See
-the "n8n", "GitHub REST Action", and "Evaluation" sections of
-`docs/implementation-checklist.md` for the itemized remaining work. Group 2
-has not been started as part of this session.
+This section tracks autonomous progress on branch `agent/finish-mvp` for
+Group 2: end-to-end application orchestration, human-approved GitHub
+opportunity issue creation, and the n8n human-approval workflow. Group 1
+(Stages 10-12, above) is complete and live-validated and is not modified in
+this group except where explicitly noted.
+
+## Stage 13 — End-to-end application orchestration
+
+**Status:** Complete
+
+### Files added
+
+- `src/product_feedback_agent/orchestrator.py`
+- `tests/test_orchestrator.py`
+
+### What it does
+
+`run_analysis(feedback_file, context_files, analysis_query, ...) -> OrchestrationResult`
+is the reusable application-level orchestration layer above the existing
+Group 1 pipeline. It sequences, without duplicating any of their logic:
+
+1. `load_feedback_file` / `load_context_file` (existing ingestion).
+2. `prepare_analysis_context` -- called exactly once per `run_analysis` call.
+3. `run_pipeline` (existing, unmodified Group 1 analyst -> deterministic
+   validator -> critic -> optional single revision).
+
+All inputs (feedback file, context files, query, top-k/sample-size,
+cache dir, Chroma persistence dir) are explicit function/CLI arguments; no
+path is hard-coded. `retrieval`/`analyst_client`/`critic_client`/
+`revision_client` are injectable, matching the existing dependency-injection
+pattern in `analyst.py`/`critic.py`/`pipeline.py`; production callers can
+omit all four.
+
+`OrchestrationResult` is a `ConfigDict(extra="forbid")` Pydantic model
+containing exactly: `cache_key`, `opportunities` (`min_length=3,
+max_length=3`), `validation_result`, `critic_output`, `revised`,
+`model_request_count`, `unresolved_issue_count`, `human_review_status`. It
+has no field that could represent a completed or automatic external action
+(no issue URL, no "approved" flag). `human_review_status` is a one-value
+enum (`HumanReviewStatus.PENDING_REVIEW`) -- nothing in this module can set
+it to anything else, since approval is a separate, explicitly human-driven
+step (Stage 14/15). This module makes no GitHub call and imports nothing
+GitHub-related.
+
+A CLI/demo entry point (`main()`, registered as the `product-feedback-agent`
+console script in `pyproject.toml`) runs one analysis, prints the structured
+JSON result, and prints an explicit "HUMAN REVIEW REQUIRED" notice. It takes
+no approval action itself.
+
+### Tests
+
+`tests/test_orchestrator.py` -- 16 tests, all offline (a `FakeRetrieval`
+that indexes real ingested `FeedbackRecord`/`ContextDocument` objects and
+returns them verbatim, plus the existing `FakeClient` pattern from
+`test_pipeline.py`). Covers: `prepare_analysis_context` invoked exactly once
+per run (asserted via the fake retrieval's index/search call counters);
+exactly 3 opportunities returned; the `OrchestrationResult` field set is
+locked and rejects an injected `approved`/`github_issue_url` field; pass-run
+metadata (`revised=False`, `model_request_count=2`) and revise-run metadata
+(`revised=True`, `model_request_count=3`) both propagate correctly; no
+execution path exceeds 3 total model requests; unresolved deterministic
+issues after revision propagate into `unresolved_issue_count`;
+`human_review_status` is always `PENDING_REVIEW` and the enum has no other
+value; the module imports nothing GitHub-related; `OrchestrationError` is
+raised (not swallowed) for zero valid feedback, an unsupported context file
+extension, and a blank query; importing the module never loads
+`sentence_transformers`; and the CLI `main()` prints the JSON result plus
+the human-review notice on success and returns a non-zero exit code with a
+clear message on `OrchestrationError`.
+
+### Test result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result: **229 / 229 passed** (213 baseline + 16 new). 0 failures, 0 errors,
+no network or Gemini requests made.
+
+### Unresolved issues / human validation needed
+
+None for Stage 13 itself. No real Gemini call was made or is needed here --
+this stage only adds orchestration around the already live-validated Group 1
+pipeline; fake clients are sufficient to prove the wiring is correct.
+
+---
+
+## Next step (Stage 14)
+
+Stage 14 (safe, human-approved GitHub opportunity issue creation) starts
+next: `create_opportunity_issue` with mandatory `approved=true`, dry-run
+mode, a repo allow-list, lazy credential loading, and duplicate prevention.
+See the "GitHub REST Action" and "MCP" sections of
+`docs/implementation-checklist.md`.

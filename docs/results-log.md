@@ -906,3 +906,53 @@ superseded, only resolved.
 Group 1 (Stages 10-12) is now complete and live-validated. This closes the
 "one controlled live retry" recommended in the prior entry. No further live
 retries were performed. Group 2 work has not been started.
+
+---
+
+## 2026-09-07 — Stage 13: End-to-End Application Orchestration
+
+### Implementation
+
+Added `product_feedback_agent.orchestrator.run_analysis`, sequencing the
+existing ingestion, `prepare_analysis_context`, and unmodified `run_pipeline`
+behind one reusable function with explicit (never hard-coded) inputs, plus a
+CLI/demo entry point (`main`, exposed as the `product-feedback-agent`
+console script).
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**229 / 229 tests passed**
+
+Breakdown:
+
+- 16 new orchestrator tests passed
+- 213 previously-passing tests remained passing
+- 0 failures, 0 errors
+- No network or Gemini requests were made (all tests use fake retrieval and
+  fake analyst/critic/revision clients)
+
+### Verified behaviors
+
+- `prepare_analysis_context` is invoked exactly once per `run_analysis`
+  call (verified via fake-retrieval index/search call counters).
+- `run_analysis` returns exactly 3 opportunities.
+- Pass-run metadata (`revised=False`, `model_request_count=2`) and
+  revise-run metadata (`revised=True`, `model_request_count=3`) both
+  propagate correctly from `run_pipeline` unchanged.
+- No execution path makes more than 3 total model requests.
+- Unresolved deterministic validation issues after revision propagate into
+  `unresolved_issue_count` rather than being hidden.
+- `OrchestrationResult.human_review_status` is always `pending_review`; the
+  enum has no other value, and the field set rejects an injected `approved`
+  or `github_issue_url` field.
+- The orchestrator module makes no GitHub call and imports nothing
+  GitHub-related.
+
+No real Gemini call was made for Stage 13; this stage only adds
+orchestration around the already live-validated Group 1 pipeline.
