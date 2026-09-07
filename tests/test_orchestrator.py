@@ -530,8 +530,10 @@ def test_main_prints_result_and_human_review_notice_on_success(project, fake_ret
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "HUMAN REVIEW REQUIRED" in captured.out
+    assert "HUMAN REVIEW REQUIRED" in captured.err
     assert '"human_review_status": "pending_review"' in captured.out
+    assert "HUMAN REVIEW REQUIRED" not in captured.out
+    json.loads(captured.out)  # stdout must be pure, parseable JSON
 
 
 def test_main_returns_nonzero_on_orchestration_error(monkeypatch, capsys):
@@ -548,4 +550,4 @@ def test_main_returns_nonzero_on_orchestration_error(monkeypatch, capsys):
 
     captured = capsys.readouterr()
     assert exit_code == 1
-    assert "could not be completed" in captured.out
+    assert "could not be completed" in captured.err

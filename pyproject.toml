@@ -22,6 +22,7 @@ dev = [
 
 [project.scripts]
 product-feedback-agent = "product_feedback_agent.orchestrator:main"
+product-feedback-agent-github-action = "product_feedback_agent.github_action:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

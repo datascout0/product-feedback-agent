@@ -26,16 +26,18 @@ Design notes (see docs/decisions.md D002):
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
+import sys
 import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict
 
@@ -426,3 +428,93 @@ def _append_trace(log_path: Path, record: dict[str, Any]) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point (the "approved action" step in the n8n workflow)
+# ---------------------------------------------------------------------------
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="product-feedback-agent-github-action",
+        description=(
+            "Render, and only if explicitly approved, create one opportunity's "
+            "GitHub issue from a Stage 13 OrchestrationResult JSON file. "
+            "approved defaults to False and dry-run defaults to True: pass "
+            "--approved AND --no-dry-run together to actually mutate GitHub. "
+            "This is the human-approved action step -- it takes no analysis "
+            "decision of its own."
+        ),
+    )
+    parser.add_argument(
+        "--result-file",
+        required=True,
+        help="Path to an OrchestrationResult JSON file (e.g. orchestrator's CLI stdout).",
+    )
+    parser.add_argument("--opportunity-id", required=True)
+    parser.add_argument("--repo", required=True, help="'owner/name' of the target repository.")
+    parser.add_argument(
+        "--approved",
+        action="store_true",
+        default=False,
+        help="Must be passed explicitly to allow a real mutation. Defaults to False.",
+    )
+    parser.add_argument(
+        "--no-dry-run",
+        dest="dry_run",
+        action="store_false",
+        default=True,
+        help="Disable dry-run mode. Without this flag, the payload is only rendered.",
+    )
+    parser.add_argument(
+        "--allowed-repo",
+        dest="allowed_repos",
+        action="append",
+        default=None,
+        help="An allow-listed 'owner/name' repo. May be repeated. Defaults to GITHUB_DEMO_REPO.",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI entry point: render/create one opportunity's issue, print the JSON result.
+
+    Writes the structured `IssueActionResult` JSON to stdout only, so it can
+    be consumed by another stage (an n8n "Execute Command" node, a script,
+    or a human). Never raises for the ordinary refusal cases (not approved,
+    unsupported repo, dry run, duplicate) -- those are reported in the
+    printed result's `status` field. Exits non-zero only for a genuine
+    failure (bad input file, unknown opportunity_id, or a real GitHub
+    request failure).
+    """
+    args = _build_arg_parser().parse_args(argv)
+
+    try:
+        raw = json.loads(Path(args.result_file).read_text(encoding="utf-8"))
+        result = OrchestrationResult.model_validate(raw)
+    except Exception as exc:
+        print(f"Could not load OrchestrationResult from {args.result_file}: {exc}", file=sys.stderr)
+        return 1
+
+    allowed_repos = frozenset(args.allowed_repos) if args.allowed_repos else None
+
+    try:
+        action_result = create_opportunity_issue(
+            result,
+            args.opportunity_id,
+            args.repo,
+            approved=args.approved,
+            dry_run=args.dry_run,
+            allowed_repos=allowed_repos,
+        )
+    except GitHubActionError as exc:
+        print(f"GitHub action could not be completed: {exc}", file=sys.stderr)
+        return 1
+
+    print(action_result.model_dump_json(indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

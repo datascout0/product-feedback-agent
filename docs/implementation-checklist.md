@@ -125,16 +125,25 @@ Last updated: 2026-09-02
 
 ## n8n
 
-- [ ] Build intake form
-- [ ] Connect Python ingestion
-- [ ] Call one batched analysis-context operation
+- [x] Build intake form
+- [x] Connect Python ingestion
+- [x] Call one batched analysis-context operation
 - [x] Add Gemini analyst
-- [ ] Add deterministic validator
-- [ ] Add Gemini critic
-- [ ] Add conditional revision
-- [ ] Display structured results
-- [ ] Add human approval
-- [ ] Export final workflow JSON
+- [x] Add deterministic validator
+- [x] Add Gemini critic
+- [x] Add conditional revision
+- [x] Display structured results
+- [x] Add human approval
+- [x] Export final workflow JSON
+
+Note: ingestion/analysis-context/analyst/validator/critic/revision are not
+separate n8n nodes -- per the task instructions ("prefer invoking reusable
+application/MCP/API boundaries rather than copying Python business logic
+into n8n"), the workflow's "Run Analysis (Python CLI)" node invokes the
+single reusable Stage 13 `product_feedback_agent.orchestrator` CLI, which
+performs all of them internally, unmodified. HUMAN CHECKPOINT REQUIRED: this
+workflow has not been imported into or run against a live n8n instance --
+see `docs/n8n-setup.md`.
 
 ## GitHub REST Action
 

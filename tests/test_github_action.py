@@ -480,3 +480,122 @@ def test_mocked_network_failure_does_not_leak_token(monkeypatch, tmp_path):
     assert secret_token not in str(excinfo.value)
     log_contents = log_path.read_text(encoding="utf-8")
     assert secret_token not in log_contents
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def _write_result_file(tmp_path: Path) -> Path:
+    result_path = tmp_path / "result.json"
+    result_path.write_text(_result().model_dump_json(indent=2), encoding="utf-8")
+    return result_path
+
+
+def test_main_dry_run_prints_json_result_and_returns_zero(tmp_path, capsys):
+    import product_feedback_agent.github_action as github_action_module
+
+    result_path = _write_result_file(tmp_path)
+
+    exit_code = github_action_module.main(
+        [
+            "--result-file",
+            str(result_path),
+            "--opportunity-id",
+            "opp_1",
+            "--repo",
+            "org/repo",
+            "--allowed-repo",
+            "org/repo",
+            "--approved",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    payload = json.loads(captured.out)
+    assert payload["status"] == "dry_run"
+    assert payload["approved"] is True
+    assert payload["dry_run"] is True
+
+
+def test_main_approved_and_no_dry_run_without_allow_list_is_refused(tmp_path, capsys):
+    import product_feedback_agent.github_action as github_action_module
+
+    result_path = _write_result_file(tmp_path)
+
+    exit_code = github_action_module.main(
+        [
+            "--result-file",
+            str(result_path),
+            "--opportunity-id",
+            "opp_1",
+            "--repo",
+            "org/repo",
+            "--approved",
+            "--no-dry-run",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    payload = json.loads(captured.out)
+    assert payload["status"] == "refused_unsupported_repo"
+
+
+def test_main_approved_and_no_dry_run_with_allow_list_and_mocked_client_creates_issue(
+    tmp_path, capsys, monkeypatch
+):
+    import product_feedback_agent.github_action as github_action_module
+
+    monkeypatch.setattr(
+        github_action_module,
+        "GitHubRestIssueClient",
+        lambda: FakeGitHubClient(issue_url="https://github.com/org/repo/issues/5"),
+    )
+
+    result_path = _write_result_file(tmp_path)
+
+    exit_code = github_action_module.main(
+        [
+            "--result-file",
+            str(result_path),
+            "--opportunity-id",
+            "opp_1",
+            "--repo",
+            "org/repo",
+            "--approved",
+            "--no-dry-run",
+            "--allowed-repo",
+            "org/repo",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    payload = json.loads(captured.out)
+    assert payload["status"] == "created"
+    assert payload["issue_url"] == "https://github.com/org/repo/issues/5"
+
+
+def test_main_unknown_opportunity_id_returns_nonzero(tmp_path, capsys):
+    import product_feedback_agent.github_action as github_action_module
+
+    result_path = _write_result_file(tmp_path)
+
+    exit_code = github_action_module.main(
+        [
+            "--result-file",
+            str(result_path),
+            "--opportunity-id",
+            "does_not_exist",
+            "--repo",
+            "org/repo",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "could not be completed" in captured.err
+    assert captured.out == ""

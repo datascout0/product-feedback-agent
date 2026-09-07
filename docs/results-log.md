@@ -1017,3 +1017,58 @@ Breakdown:
 No real GitHub issue was created. Per the task instructions, that step is
 left as an explicit, separate, human-approved verification step (see
 `docs/agent-progress.md` Stage 14).
+
+---
+
+## 2026-09-07 — Stage 15: n8n Workflow (Static Artifact Only)
+
+### Implementation
+
+Added `n8n/workflows/product-feedback-agent.json` (intake form -> Stage 13
+orchestrator CLI -> structured review -> human approval gate -> Stage 14
+github_action CLI only on approval, with a dead-end rejection path) and
+`docs/n8n-setup.md`. Made two small CLI adjustments (JSON-only stdout on
+`orchestrator.main()`, a new `github_action.main()` CLI) so the two
+existing Python entry points pipe cleanly through n8n's Execute Command
+node.
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**271 / 271 tests passed**
+
+Breakdown:
+
+- 13 new static workflow-structure tests passed (`tests/test_n8n_workflow.py`)
+- 258 previously-passing tests remained passing (2 of them updated, not
+  weakened, for the stdout/stderr CLI split)
+- 0 failures, 0 errors
+- No network, Gemini, or GitHub requests were made
+- No live n8n instance was reached
+
+### Verified (statically) behaviors
+
+- Removing only the Approval Gate's "approve" edge makes the GitHub-issue
+  node unreachable from the intake form -- there is exactly one path to a
+  GitHub mutation in this workflow graph, and it passes through the
+  approval gate.
+- The Approval Gate's conditions require the case-sensitive literal string
+  `"approve"` plus a non-blank opportunity_id and a non-blank repo.
+- The rejection node has no outgoing connection.
+- The `github_action` CLI (with `--approved --no-dry-run`) is invoked from
+  exactly one node in the whole workflow.
+- The workflow JSON contains no hard-coded Windows user path and no
+  embedded token/API-key value; `PFA_PROJECT_ROOT` is referenced only via
+  an environment-variable lookup.
+
+### Status
+
+**HUMAN CHECKPOINT REQUIRED**: this workflow has not been imported into or
+executed against a live n8n instance, and no real GitHub issue was created.
+See `docs/agent-progress.md` Stage 15 for the exact human verification
+steps remaining.

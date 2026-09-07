@@ -579,13 +579,114 @@ dry_run=False)` themselves against a real allow-listed demo repository.
 
 ---
 
-## Next step (Stage 15)
+## Stage 15 — n8n + human approval workflow
 
-Stage 15 (n8n workflow + human approval artifacts) starts next: an
-importable workflow JSON under `n8n/workflows/` representing intake ->
-analysis -> structured review -> explicit human approval ->
-approved/rejected paths -> GitHub action only after approval, plus setup
-documentation. Per the task instructions, no live n8n instance is available
-to this session, so any live-workflow validation will be marked HUMAN
-CHECKPOINT REQUIRED rather than claimed. See the "n8n" section of
-`docs/implementation-checklist.md`.
+**Status:** Complete as a static artifact. **HUMAN CHECKPOINT REQUIRED**
+for live n8n import/execution -- not performed by Claude Code this session
+(no live n8n instance was reachable).
+
+### Files added
+
+- `n8n/workflows/product-feedback-agent.json`
+- `docs/n8n-setup.md`
+- `tests/test_n8n_workflow.py`
+- CLI changes to support clean piping between stages (see below):
+  `src/product_feedback_agent/orchestrator.py` (JSON to stdout only, human
+  notice moved to stderr), `src/product_feedback_agent/github_action.py`
+  (new `main()` CLI entry point), `pyproject.toml` (new
+  `product-feedback-agent-github-action` console script).
+
+### What it does
+
+The workflow represents exactly the required flow: Intake Form -> Build
+Analysis Command -> Run Analysis (Python CLI) -> Parse Orchestration Result
+-> Render Review Summary -> Human Review & Approval (Form) -> Approval Gate
+(If) -> **approved path**: Build GitHub Action Command -> Create GitHub
+Issue (Approved) -> Parse GitHub Action Result -> Approved Summary;
+**rejected/anything-else path**: No Action (Rejected), a dead end with no
+outgoing connection.
+
+No core product logic is duplicated in n8n expressions: the "Run Analysis"
+and "Create GitHub Issue" nodes are `n8n-nodes-base.executeCommand` nodes
+that shell out to the existing, unmodified Stage 13 `orchestrator` CLI and
+Stage 14 `github_action` CLI respectively. Every other node is pure
+JSON formatting/branching on their output. The Approval Gate requires all
+three of: `Decision == "approve"` (case-sensitive), a non-blank
+`opportunity_id`, and a non-blank target `repo` -- anything else (reject,
+blank, malformed) routes to the dead-end rejection node. Even past the
+gate, the `github_action` CLI independently re-checks `approved`/
+`dry_run`/the repo allow-list/the duplicate marker before any GitHub
+request, so n8n misconfiguration cannot itself force a write.
+
+Two small CLI changes from Stage 13/14 were needed to make the pipe-through-
+n8n design work cleanly, and were made deliberately as part of this stage:
+
+1. `orchestrator.main()` now writes ONLY the JSON `OrchestrationResult` to
+   stdout; the "HUMAN REVIEW REQUIRED" notice moved to stderr. This means
+   an `Execute Command` node's `stdout` field is directly `JSON.parse`-able
+   by the next node, with no string-stripping required. `tests/test_orchestrator.py`'s
+   CLI tests were updated to check `captured.err`/`captured.out` accordingly
+   (still asserting the notice is printed, just on the correct stream).
+2. `github_action.py` gained a `main()` CLI entry point (`--result-file`,
+   `--opportunity-id`, `--repo`, `--approved`, `--no-dry-run`,
+   `--allowed-repo`, repeatable) mirroring `orchestrator.main()`'s design:
+   JSON result to stdout only, errors to stderr, non-zero exit only for a
+   genuine failure (bad input file, unknown opportunity_id, or a real
+   GitHub request failure) -- never for an ordinary refusal, which is
+   reported in the printed result's `status` field instead.
+
+### Tests
+
+`tests/test_n8n_workflow.py` -- 13 tests, pure static analysis of the
+workflow JSON (no n8n dependency, no network): the file parses as JSON;
+every connection's source/target resolves to a real node; every non-trigger
+node has an incoming connection; every node is reachable from the intake
+form; the rejection node has zero outgoing connections; **the core safety
+property** -- removing only the Approval Gate's "approve" edge makes the
+GitHub-issue node unreachable from the intake form entirely (proving there
+is no second, hidden path to a GitHub mutation); the Approval Gate's
+conditions require the literal case-sensitive string `"approve"` plus a
+non-blank opportunity_id and a non-blank repo; the `github_action` CLI
+(with `--approved --no-dry-run`) is invoked from exactly one node, never
+any other; the `orchestrator` CLI's command-building node never includes a
+GitHub-related flag; the workflow file contains no hard-coded Windows user
+path (`C:\Users`, `C:/Users`, `/home/...`); `PFA_PROJECT_ROOT` is referenced
+only via an `$env.` lookup, never assigned a literal path in the JSON; and
+the file contains no `GITHUB_TOKEN`/`GEMINI_API_KEY`/token-shaped literal.
+
+`tests/test_orchestrator.py`'s two CLI tests were updated (not weakened) for
+the stdout/stderr split above; both still assert the same content, on the
+now-correct stream.
+
+### Test result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result: **271 / 271 passed** (258 baseline + 13 new n8n-workflow tests).
+0 failures, 0 errors, no network or Gemini requests made, and no real n8n
+instance or GitHub API was reached anywhere in this suite.
+
+### Unresolved issues / human validation needed
+
+**HUMAN CHECKPOINT REQUIRED** (per task instructions, since Claude Code has
+no access to a live localhost n8n instance):
+
+1. Import `n8n/workflows/product-feedback-agent.json` into a real n8n
+   instance and confirm every node opens without a schema-mismatch/
+   migration warning for your installed n8n version (node-parameter field
+   names, especially for the Form/Form-Trigger/If/Set nodes, were written
+   from the n8n workflow-JSON schema at authoring time and were not
+   round-tripped through a live n8n import).
+2. Set `PFA_PROJECT_ROOT` (and optionally `PFA_PYTHON`), `GEMINI_API_KEY`,
+   and `GITHUB_TOKEN` on the n8n host, per `docs/n8n-setup.md`.
+3. Run the reject path once (expect a dead end, no GitHub call) and the
+   approve path once against a real, disposable demo repository you
+   control (expect a real GitHub issue -- this is the explicit,
+   deliberate, human-approved verification step called for in both Stage
+   14 and Stage 15's task instructions; it was intentionally not performed
+   autonomously).
+
+No real GitHub issue and no live n8n execution occurred during this
+session.

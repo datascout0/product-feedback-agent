@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Sequence
@@ -225,6 +226,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     This is a thin presentation layer over `run_analysis`. It makes no
     GitHub call and requests no approval decision on the caller's behalf --
     it prints the structured result and leaves review/approval to a human.
+
+    The JSON result is written to stdout ONLY (nothing else on stdout), so
+    the output can be piped directly into another stage (e.g. an n8n
+    "Execute Command" node, or `github_action`'s CLI below) without extra
+    parsing. Human-facing notices go to stderr instead.
     """
     args = _build_arg_parser().parse_args(argv)
 
@@ -240,15 +246,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             chroma_path=args.chroma_path,
         )
     except OrchestrationError as exc:
-        print(f"Analysis could not be completed: {exc}")
+        print(f"Analysis could not be completed: {exc}", file=sys.stderr)
         return 1
 
     print(result.model_dump_json(indent=2))
     print(
-        "\nHUMAN REVIEW REQUIRED: no GitHub issue or other external action "
+        "HUMAN REVIEW REQUIRED: no GitHub issue or other external action "
         "has been taken. Review the opportunities above and use the "
         "separate, explicitly human-approved action step to act on any of "
-        "them."
+        "them.",
+        file=sys.stderr,
     )
     return 0
 

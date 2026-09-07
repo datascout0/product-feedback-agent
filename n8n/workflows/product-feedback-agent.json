@@ -1,0 +1,280 @@
+{
+  "name": "Product Feedback Agent - Human Approval",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "nodes": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Intake Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [-1180, 0],
+      "webhookId": "00000000-0000-4000-8000-0000000000f1",
+      "notes": "STAGE: input/intake. A human starts one analysis run by submitting this form. No file content is embedded in the workflow -- paths are supplied at submission time (see setup docs: PFA_PROJECT_ROOT).",
+      "parameters": {
+        "formTitle": "Product Feedback Agent - New Analysis",
+        "formDescription": "Paths are resolved on the n8n host, relative to PFA_PROJECT_ROOT (see setup docs). This step only runs analysis -- it never creates a GitHub issue.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Feedback file path",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "data/samples/feedback_sample.csv"
+            },
+            {
+              "fieldLabel": "Context file paths (comma-separated)",
+              "fieldType": "text",
+              "requiredField": false,
+              "placeholder": "data/samples/roadmap.md, data/samples/product_strategy.md"
+            },
+            {
+              "fieldLabel": "Analysis query",
+              "fieldType": "text",
+              "requiredField": true,
+              "placeholder": "search filtering and billing friction"
+            }
+          ]
+        },
+        "responseMode": "lastNode"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "name": "Build Analysis Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-960, 0],
+      "notes": "Builds the product-feedback-agent CLI invocation (Stage 13 orchestrator). No analysis logic lives here -- it only shell-quotes the form inputs.",
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const projectRoot = $env.PFA_PROJECT_ROOT;\nconst python = $env.PFA_PYTHON || 'python';\nif (!projectRoot) {\n  throw new Error('PFA_PROJECT_ROOT environment variable is not set on the n8n host. See docs/n8n-setup.md.');\n}\n\nfunction shQuote(value) {\n  return `'${String(value).replace(/'/g, \"'\\\\''\")}'`;\n}\n\nconst feedbackFile = $json['Feedback file path'];\nconst analysisQuery = $json['Analysis query'];\nconst contextFilesRaw = $json['Context file paths (comma-separated)'] || '';\nconst contextFiles = contextFilesRaw\n  .split(',')\n  .map((s) => s.trim())\n  .filter(Boolean);\n\nlet command = `cd ${shQuote(projectRoot)} && ${shQuote(python)} -m product_feedback_agent.orchestrator --feedback-file ${shQuote(feedbackFile)} --query ${shQuote(analysisQuery)}`;\nfor (const file of contextFiles) {\n  command += ` --context-file ${shQuote(file)}`;\n}\n\nreturn [{ json: { command } }];"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "name": "Run Analysis (Python CLI)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [-740, 0],
+      "notes": "STAGE: analysis invocation. Runs the reusable orchestrator CLI (analyst -> deterministic validator -> critic -> optional single revision). No core product logic is duplicated in n8n. The CLI writes ONLY the structured JSON result to stdout; the human-review notice goes to stderr.",
+      "parameters": {
+        "command": "={{ $json.command }}"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000004",
+      "name": "Parse Orchestration Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-520, 0],
+      "notes": "Fails the run loudly on a non-zero exit code rather than presenting a partial/garbled result for approval.",
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first().json;\nif (item.exitCode !== 0) {\n  throw new Error(`Analysis failed (exit code ${item.exitCode}): ${item.stderr}`);\n}\nconst orchestrationResult = JSON.parse(item.stdout);\nreturn [{ json: { orchestrationResult } }];"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "name": "Render Review Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-300, 0],
+      "notes": "STAGE: structured opportunity display. Renders exactly the 3 opportunities, their deterministic scores, evidence counts, and unresolved validation issues -- nothing here re-scores or re-decides anything.",
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const result = $json.orchestrationResult;\n\nconst sections = result.opportunities.map((opportunity) => {\n  const validated = result.validation_result.opportunities.find(\n    (v) => v.opportunity_id === opportunity.opportunity_id\n  );\n  const evidenceCount = validated ? validated.evidence_count : 'n/a';\n  const score = validated ? validated.score.total.toFixed(2) : 'n/a';\n  const unresolved = validated ? validated.issues.length : 0;\n  return [\n    `### ${opportunity.opportunity_id}: ${opportunity.title}`,\n    `Score: ${score} | Evidence count: ${evidenceCount} | Unresolved deterministic issues: ${unresolved}`,\n    opportunity.problem_statement,\n  ].join('\\n');\n});\n\nconst summaryMarkdown = [\n  `**Run/cache reference:** \\`${result.cache_key}\\``,\n  `**Critic status:** ${result.critic_output.status} | **Revised:** ${result.revised} | **Model requests:** ${result.model_request_count}`,\n  `**Total unresolved deterministic issues:** ${result.unresolved_issue_count}`,\n  '',\n  sections.join('\\n\\n'),\n].join('\\n');\n\nreturn [{ json: { orchestrationResult: result, summaryMarkdown } }];"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000006",
+      "name": "Human Review & Approval",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [-80, 0],
+      "webhookId": "00000000-0000-4000-8000-0000000000f1",
+      "notes": "STAGE: explicit human approval boundary. This is the ONLY step that can authorize a GitHub write. Approval is never inferred -- the human must type 'approve' AND name one opportunity_id AND the target repo. Any other input (including leaving this blank/timing out) is treated as reject by the Approval Gate below.",
+      "parameters": {
+        "operation": "completion",
+        "formTitle": "Review opportunities and decide",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Opportunity summary",
+              "fieldType": "html",
+              "html": "={{ $json.summaryMarkdown }}"
+            },
+            {
+              "fieldLabel": "opportunity_id to act on (leave blank to reject)",
+              "fieldType": "text",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Target GitHub repo (owner/name)",
+              "fieldType": "text",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Decision",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  { "option": "approve" },
+                  { "option": "reject" }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000007",
+      "name": "Approval Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [140, 0],
+      "notes": "STAGE: approve/reject branch. Only the exact string 'approve' from the human review form continues to the GitHub-action branch. Everything else (including 'reject', blank, or malformed input) goes to the no-action branch. Deterministic validation is never bypassed here -- it already ran, unconditionally, before this gate.",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "decision-is-approve",
+              "leftValue": "={{ $json['Decision'] }}",
+              "rightValue": "approve",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "opportunity-id-present",
+              "leftValue": "={{ $json['opportunity_id to act on (leave blank to reject)'] }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEquals" }
+            },
+            {
+              "id": "repo-present",
+              "leftValue": "={{ $json['Target GitHub repo (owner/name)'] }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000008",
+      "name": "Build GitHub Action Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [380, -120],
+      "notes": "Approved path only. Writes the ORIGINAL orchestration result (not a re-derived or n8n-edited version) to a run-scoped temp file, then calls the Stage 14 github_action CLI with --approved --no-dry-run and an allow-list containing ONLY the human-supplied repo. No core GitHub logic is duplicated here -- this only shells out to the existing Python CLI.",
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const projectRoot = $env.PFA_PROJECT_ROOT;\nconst python = $env.PFA_PYTHON || 'python';\nif (!projectRoot) {\n  throw new Error('PFA_PROJECT_ROOT environment variable is not set on the n8n host. See docs/n8n-setup.md.');\n}\n\nfunction shQuote(value) {\n  return `'${String(value).replace(/'/g, \"'\\\\''\")}'`;\n}\n\nconst orchestrationResult = $('Parse Orchestration Result').first().json.orchestrationResult;\nconst opportunityId = $json['opportunity_id to act on (leave blank to reject)'];\nconst repo = $json['Target GitHub repo (owner/name)'];\nconst tempFile = `${projectRoot}/data/local/n8n-run-${$execution.id}.json`;\nconst resultJson = JSON.stringify(orchestrationResult);\n\nconst writeCommand = `cat > ${shQuote(tempFile)} <<'PFA_EOF'\\n${resultJson}\\nPFA_EOF`;\nconst runCommand = `cd ${shQuote(projectRoot)} && ${shQuote(python)} -m product_feedback_agent.github_action --result-file ${shQuote(tempFile)} --opportunity-id ${shQuote(opportunityId)} --repo ${shQuote(repo)} --allowed-repo ${shQuote(repo)} --approved --no-dry-run`;\n\nreturn [{ json: { command: `${writeCommand}\\n${runCommand}` } }];"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000009",
+      "name": "Create GitHub Issue (Approved)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [600, -120],
+      "notes": "STAGE: GitHub action, approved path only. This node is unreachable unless Approval Gate matched 'approve' with a named opportunity_id and repo. The underlying CLI independently re-checks approved/dry-run/allow-list/duplicate before ever calling GitHub -- this node cannot bypass those guards.",
+      "parameters": {
+        "command": "={{ $json.command }}"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000000a",
+      "name": "Parse GitHub Action Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, -120],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first().json;\nif (item.exitCode !== 0) {\n  throw new Error(`GitHub action failed (exit code ${item.exitCode}): ${item.stderr}`);\n}\nconst actionResult = JSON.parse(item.stdout);\nreturn [{ json: { actionResult } }];"
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000000b",
+      "name": "Approved Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1040, -120],
+      "notes": "status will be 'created', 'refused_duplicate', 'refused_unsupported_repo', or 'refused_not_approved' -- inspect this before assuming an issue was actually filed.",
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "={{ $json.actionResult.status }}"
+            },
+            {
+              "id": "issue_url",
+              "name": "issue_url",
+              "type": "string",
+              "value": "={{ $json.actionResult.issue_url }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-00000000000c",
+      "name": "No Action (Rejected)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [380, 140],
+      "notes": "STAGE: rejected/no-action path. Reached whenever the human did not type 'approve' with both an opportunity_id and a repo. Intentionally connects to nothing further -- no GitHub node exists on this branch, so no mutation is structurally possible from here.",
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Intake Form": {
+      "main": [[{ "node": "Build Analysis Command", "type": "main", "index": 0 }]]
+    },
+    "Build Analysis Command": {
+      "main": [[{ "node": "Run Analysis (Python CLI)", "type": "main", "index": 0 }]]
+    },
+    "Run Analysis (Python CLI)": {
+      "main": [[{ "node": "Parse Orchestration Result", "type": "main", "index": 0 }]]
+    },
+    "Parse Orchestration Result": {
+      "main": [[{ "node": "Render Review Summary", "type": "main", "index": 0 }]]
+    },
+    "Render Review Summary": {
+      "main": [[{ "node": "Human Review & Approval", "type": "main", "index": 0 }]]
+    },
+    "Human Review & Approval": {
+      "main": [[{ "node": "Approval Gate", "type": "main", "index": 0 }]]
+    },
+    "Approval Gate": {
+      "main": [
+        [{ "node": "Build GitHub Action Command", "type": "main", "index": 0 }],
+        [{ "node": "No Action (Rejected)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build GitHub Action Command": {
+      "main": [[{ "node": "Create GitHub Issue (Approved)", "type": "main", "index": 0 }]]
+    },
+    "Create GitHub Issue (Approved)": {
+      "main": [[{ "node": "Parse GitHub Action Result", "type": "main", "index": 0 }]]
+    },
+    "Parse GitHub Action Result": {
+      "main": [[{ "node": "Approved Summary", "type": "main", "index": 0 }]]
+    }
+  }
+}
