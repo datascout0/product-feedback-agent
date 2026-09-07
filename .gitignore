@@ -27,3 +27,4 @@ htmlcov/
 data/local/
 chroma_db/
 *.log
+logs/*.jsonl

@@ -475,3 +475,66 @@ The two strongest results were the two feedback records:
 `Search results are hard to filter.`
 
 This confirms MCP parameter handling, persistent indexed retrieval, and structured output through the actual MCP protocol.
+
+---
+
+## 2026-09-07 - Gemini Analyst Validation
+
+### Implementation
+
+Implemented the bounded Gemini analyst using `google-genai` 2.22.0 and
+`gemini-3.7-flash`.
+
+The analyst:
+
+- consumes one deterministic `AnalysisContextPacket`
+- uses only supplied feedback and product context
+- produces exactly three structured opportunity drafts
+- uses Pydantic structured-output validation
+- proposes score components from 1 to 5
+- does not generate final evidence counts or opportunity scores
+- makes at most one Gemini request per analyst run
+- loads `GEMINI_API_KEY` lazily from the environment
+- records non-secret model-call metadata
+
+### Automated Validation
+
+Full offline suite:
+
+**137 / 137 tests passed**
+
+Tests use injected fake clients and do not call Gemini.
+
+### Real Gemini Smoke Test
+
+A single real `gemini-3.7-flash` analyst request was made using the cached
+analysis-context packet:
+
+`e4cfdd21879143b76031823715f6c104f4bd9a8ccfd24bb070050c8ebea44d0c`
+
+Result:
+
+- success: true
+- opportunities returned: 3
+- duration: 17.781 seconds
+- total tokens reported: 8,064
+- Gemini requests: 1
+
+Opportunity themes:
+
+1. Difficulty narrowing and filtering search results
+2. Mobile application instability during photo uploads
+3. Reporting export workflow friction
+
+### Important Validation Finding
+
+The response was structurally valid but demonstrated why deterministic
+business-rule validation is still required.
+
+Gemini included `mobile` and `reporting` in `affected_segments`, although those
+values are product areas rather than customer segments in the supplied data.
+
+This is intentionally not corrected manually in the analyst output. The next
+deterministic validation stage should detect unsupported segments, validate
+feedback/context IDs and exact quotations, recompute evidence counts, and
+calculate final opportunity scores locally.

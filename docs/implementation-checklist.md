@@ -96,8 +96,8 @@ Last updated: 2026-09-02
 
 - [ ] Define opportunity-card schema
 - [ ] Add Evidence-Backed Opportunity Tree structure
-- [ ] Write Gemini analyst prompt
-- [ ] Produce exactly 3 opportunity candidates
+- [x] Write Gemini analyst prompt
+- [x] Produce exactly 3 opportunity candidates
 - [ ] Distinguish requested solutions from underlying needs
 - [ ] Require evidence citations
 - [ ] Add clarification-question logic
@@ -127,7 +127,7 @@ Last updated: 2026-09-02
 - [ ] Build intake form
 - [ ] Connect Python ingestion
 - [ ] Call one batched analysis-context operation
-- [ ] Add Gemini analyst
+- [x] Add Gemini analyst
 - [ ] Add deterministic validator
 - [ ] Add Gemini critic
 - [ ] Add conditional revision
