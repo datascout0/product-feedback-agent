@@ -113,12 +113,12 @@ Last updated: 2026-09-02
 
 ## Critic Workflow
 
-- [ ] Write Gemini critic prompt
-- [ ] Validate evidence support
-- [ ] Detect duplicate opportunities
-- [ ] Check contradictory evidence
-- [ ] Check unsupported segment claims
-- [ ] Check roadmap/context citations
+- [x] Write Gemini critic prompt
+- [x] Validate evidence support
+- [x] Detect duplicate opportunities
+- [x] Check contradictory evidence
+- [x] Check unsupported segment claims
+- [x] Check roadmap/context citations
 - [ ] Implement conditional single revision
 - [ ] Demonstrate one seeded revision case
 

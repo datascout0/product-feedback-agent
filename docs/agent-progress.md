@@ -71,7 +71,58 @@ updated together.
 
 ## Stage 11 — Gemini critic
 
-**Status:** pending
+**Status:** Complete
+
+### Files added
+
+- `src/product_feedback_agent/critic.py`
+- `tests/test_critic.py`
+
+### What it does
+
+`run_critic(packet, analyst_output, validation_result, client=None) -> CriticOutput`
+mirrors `analyst.py`'s engineering pattern exactly: lazy `GeminiCriticClient`
+(no `google.genai` import, no env read, no network at import time or in
+`__init__`), dependency-injected `CriticClient` protocol for tests, at most
+one model request per call, no retry loop, and non-secret model-call tracing
+(`stage="critic"`, `model`, `cache_key`, `success`, `duration_seconds`,
+`usage` when available) to `logs/model-calls.jsonl`.
+
+The critic prompt (`build_critic_prompt`) is built from all three required
+inputs: the original `AnalysisContextPacket`, the analyst's `AnalystOutput`
+draft, and the Stage 10 `ValidationResult` -- so the critic reviews
+reasoning quality (evidence support, duplicate opportunities, ignored
+contradictions, roadmap/strategy overreach, rationale quality,
+feature-vs-need confusion, confidence overstatement, next-step fit) on top
+of, not instead of, the deterministic checks.
+
+`CriticOutput` is structured exactly as specified: `status` (`pass`/`revise`
+enum), `issues` (typed `CriticIssueType` enum + message + opportunity_id),
+`unsupported_claims`, `citation_errors`, `duplicate_opportunities`,
+`required_revisions`. A Pydantic model-validator enforces that
+`status="revise"` requires at least one `required_revisions` entry. The
+schema has no field that could let the critic decide a roadmap, create a
+GitHub issue, or change a permission -- `test_critic_output_has_no_roadmap_or_action_fields`
+locks the exact field set.
+
+### Tests
+
+`tests/test_critic.py` — 25 tests, all offline (fake clients; real
+`google.genai` is monkeypatched into `sys.modules` for the "real client"
+tests, never actually imported/network-reachable). Covers schema
+constraints/enums, prompt content, the one-request boundary, error paths,
+lazy API-key loading (subprocess import test mirroring analyst.py's), and
+that no API key ever leaks into trace logs.
+
+### Test result
+
+Full suite: **187 / 187 passed** (162 from Stage 10 + 25 new).
+
+### Unresolved issues / human validation needed
+
+No real Gemini critic call has been made yet (by design -- Group 1 stays
+offline unless a human explicitly requests a real smoke test, same rule
+applied to the Stage 9 analyst).
 
 ---
 
@@ -83,7 +134,11 @@ updated together.
 
 ## Next step
 
-Implement Stage 11 (`src/product_feedback_agent/critic.py`), mirroring
-`analyst.py`'s lazy-client / dependency-injection / structured-output /
-one-request pattern, consuming the `AnalysisContextPacket`, the
-`AnalystOutput` draft, and the Stage 10 `ValidationResult`.
+Implement Stage 12: a small orchestration function (e.g.
+`src/product_feedback_agent/pipeline.py`) that runs analyst (1 request) ->
+deterministic validation -> critic (2nd request) -> if `status == "revise"`,
+exactly one revision request (3rd, final) -> re-run deterministic
+validation locally. Must never exceed 3 model requests total. Revision
+client will need its own small Pydantic output schema (still exactly three
+opportunities) and prompt, reusing `OpportunityDraft`/`AnalystOutput` shapes
+where possible rather than inventing a new one.

@@ -594,3 +594,49 @@ Breakdown:
 - 137 previously-passing tests remained passing
 - 0 failures, 0 errors
 - No network or Gemini requests were made
+
+---
+
+## 2026-09-07 — Gemini Critic
+
+### Implementation
+
+Implemented `product_feedback_agent.critic`, mirroring `analyst.py`'s
+lazy-client / dependency-injection / structured-output / one-request-per-run
+pattern exactly, using `google-genai` and `gemini-3.7-flash`.
+
+The critic:
+
+- consumes the `AnalysisContextPacket`, the analyst's `AnalystOutput` draft,
+  and the Stage 10 `ValidationResult` together
+- reviews evidence support, invalid/invented citations, exact-quotation
+  problems, unsupported affected segments, duplicate opportunities, ignored
+  contradictions, roadmap/strategy overreach, score-rationale quality,
+  feature-vs-underlying-need confusion, confidence overstatement, and
+  next-step fit against evidence gaps
+- returns a structured `CriticOutput` (`status`, `issues`,
+  `unsupported_claims`, `citation_errors`, `duplicate_opportunities`,
+  `required_revisions`) with an enforced constraint that `status="revise"`
+  requires at least one `required_revisions` entry
+- has no field or capability that could decide a roadmap, create a GitHub
+  issue, or change a permission
+- makes at most one Gemini request per critic run, with no retry loop
+- loads `GEMINI_API_KEY` lazily and never at import time
+- records non-secret model-call metadata with `stage="critic"`
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**187 / 187 tests passed**
+
+Breakdown:
+
+- 25 new critic tests passed
+- 162 previously-passing tests remained passing
+- 0 failures, 0 errors
+- No network or Gemini requests were made
