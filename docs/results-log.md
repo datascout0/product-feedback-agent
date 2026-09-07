@@ -538,3 +538,59 @@ This is intentionally not corrected manually in the analyst output. The next
 deterministic validation stage should detect unsupported segments, validate
 feedback/context IDs and exact quotations, recompute evidence counts, and
 calculate final opportunity scores locally.
+
+---
+
+## 2026-09-07 — Deterministic Opportunity Validation and Scoring
+
+### Implementation
+
+Implemented `product_feedback_agent.validation`: a pure, offline function
+`validate_analyst_output(output, packet) -> ValidationResult` with no client
+parameter and no I/O.
+
+Implemented checks:
+
+- feedback ID existence, for both `feedback_ids` and
+  `representative_evidence[].feedback_id`
+- exact-substring verification of every representative excerpt against the
+  cited feedback's verbatim text
+- context citation existence and correct document/section pairing
+- affected-segment support against the `segment` metadata of the
+  opportunity's own valid cited feedback, with an explicit distinct message
+  when the value is actually a `product_area` in the dataset
+- locally computed `evidence_count` from deduplicated, packet-valid
+  feedback IDs only
+- locally computed opportunity score using the locked weights (evidence
+  strength 30%, severity 25%, strategic alignment 20%, segment breadth 15%,
+  confidence 10%), with `roadmap_status` excluded from scoring
+
+### Real-Finding Regression
+
+Replayed the real 2026-09-07 Gemini analyst smoke output
+(`data/local/analyst-smoke.json`) against its originating cached packet
+(`data/local/analysis-context-cache/e4cfdd21...json`) through the new
+validator, offline, with no model call.
+
+Result: both `mobile` and `reporting` were correctly flagged as unsupported
+`affected_segments` values, with the validator's message identifying each as
+a `product_area` in the dataset rather than a customer segment. This test is
+skipped (not failed) when the gitignored local fixtures are absent, so the
+required suite never depends on them.
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**162 / 162 tests passed**
+
+Breakdown:
+
+- 25 new deterministic validation/scoring tests passed
+- 137 previously-passing tests remained passing
+- 0 failures, 0 errors
+- No network or Gemini requests were made

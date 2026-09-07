@@ -104,12 +104,12 @@ Last updated: 2026-09-02
 
 ## Validation and Scoring
 
-- [ ] Validate opportunity schema deterministically
-- [ ] Reject nonexistent feedback IDs
-- [ ] Verify exact quotations
-- [ ] Recompute evidence counts locally
-- [ ] Implement transparent opportunity scoring
-- [ ] Keep roadmap coverage separate from score
+- [x] Validate opportunity schema deterministically
+- [x] Reject nonexistent feedback IDs
+- [x] Verify exact quotations
+- [x] Recompute evidence counts locally
+- [x] Implement transparent opportunity scoring
+- [x] Keep roadmap coverage separate from score
 
 ## Critic Workflow
 
