@@ -1045,3 +1045,153 @@ demo-ready:
 
 No real GitHub issue, no real Gemini call, and no live n8n execution
 occurred during this repair.
+
+## Stage 15 repair round 4 — Removed redundant critic `status` from the wire contract
+
+**Status:** Complete (architectural repair). One controlled live n8n retry
+still required. Group 3 has NOT been started.
+
+### Live validation results (2026-09-07)
+
+Re-testing the `$env`-removed workflow (commit `83652c3`) against the
+user's real self-hosted n8n Docker instance, on Windows, confirmed real
+progress: the n8n workflow imported, ran, and its "Run Analysis (HTTP)"
+node successfully reached this repository's Windows-host Python API --
+`POST /analyze` was received, and ingestion/retrieval began successfully.
+This is the first live confirmation that n8n (in Docker) can reach the
+Windows host at `host.docker.internal:8000` and drive a real request into
+the Python service. The Hugging Face "unauthenticated requests" warning
+observed during this run was informational only; the local MiniLM
+embedding weights loaded successfully and were not the failure.
+
+### Live finding
+
+The request then failed inside the Gemini critic stage. The real critic
+again returned `status="revise"` with `required_revisions` entirely
+missing (not merely an empty list) -- the third distinct live occurrence
+of this failure family (see the two `2026-09-07` entries in
+`docs/results-log.md`: "Critic Contract Failure and Fix" and "Second
+Critic Contract Failure and Schema-Level Fix"). The `CriticWireResponse`
+union in place at the time (`CriticPassResponse | CriticReviseResponse`)
+rejected the response with `CriticReviseResponse.required_revisions: Field
+required`, `run_critic` raised `CriticError`, and that error propagated
+unhandled through Starlette, producing a generic HTTP 500 with a raw
+traceback rather than a structured error body for n8n.
+
+### Conclusion
+
+Three separate live attempts, using three different enforcement
+strategies (prompt wording only; then a schema-level pass/revise `anyOf`
+union), all failed the same way: Gemini produced an inconsistent
+`status`/`required_revisions` pair. The recurring root cause is that
+`status` is redundant, model-controlled state that duplicates what
+`required_revisions` already expresses -- asking the model to produce both
+creates a state the model can make internally inconsistent no matter how
+tightly the schema around it is constrained. The fix is architectural, not
+another prompt or schema patch: remove `status` from the wire contract
+entirely.
+
+### Repair
+
+`src/product_feedback_agent/critic.py`:
+
+- Replaced `CriticPassResponse`/`CriticReviseResponse`/`CriticWireResponse`
+  (the pass/revise `anyOf` union) with a single flat `CriticWireResponse`
+  Pydantic model (`extra="forbid"`): `issues`, `unsupported_claims`,
+  `citation_errors`, `duplicate_opportunities`, and a `required_revisions:
+  list[str]` field with no default, so it is always present in
+  `model_json_schema()`'s `"required"` list, matching the schema Gemini
+  actually receives via `build_critic_response_schema()`. There is no
+  `status` field anywhere in this schema, and no `anyOf`/`oneOf`.
+- Added `derive_critic_status(required_revisions) -> CriticStatus`: the
+  single place `CriticStatus` is decided -- non-empty `required_revisions`
+  => `REVISE`, empty => `PASS`. `status` is never read from the model's raw
+  JSON.
+- `run_critic` now parses the raw response as `CriticWireResponse`
+  (rejecting a stray `status` field the model might still emit, since
+  `extra="forbid"` is unchanged), derives `status` via
+  `derive_critic_status`, and constructs the domain `CriticOutput` (which
+  still has a `status` field, since `pipeline.py`/`orchestrator.py`/`api.py`
+  all read it) from the wire findings plus the derived status.
+- The critic prompt in `build_critic_prompt` no longer mentions `status` at
+  all; it instructs the model that `required_revisions` alone is its
+  verdict -- always present, empty when no change is needed, one or more
+  concrete actionable strings otherwise, including for deterministic
+  validation findings that require an analyst-side correction (the
+  existing safe behavior from the Stage 12b fix is preserved, just
+  reworded around `required_revisions` instead of `status="revise"`).
+- No retries were added, the critic is still called at most once, and the
+  2/3 (pass) / 3/3 (revise) total Gemini request budget in `pipeline.py` is
+  unchanged.
+
+`src/product_feedback_agent/api.py` (hardening for the unhandled-500
+finding above):
+
+- `/analyze` now catches `AnalystError`, `CriticError`, and `RevisionError`
+  explicitly and returns a small structured JSON body
+  (`{"error": "analysis_failed", "stage": <analyst|critic|revision>,
+  "error_type": <exception class name>}`) with HTTP 502, instead of letting
+  the exception propagate through Starlette as an unhandled ASGI exception
+  (generic HTTP 500, raw traceback). No exception message, model response
+  content, or stack trace is included in the response. Any other,
+  unexpected exception type is left to propagate unchanged -- this is not a
+  blanket try/except, and no error is swallowed or turned into a fake
+  success.
+
+### Tests
+
+`tests/test_critic.py`: removed the tests that locked the obsolete
+pass/revise `anyOf` union (`CriticPassResponse`/`CriticReviseResponse`
+alternatives, per-branch `minItems`/`maxItems`) and the now-removed
+`CriticOutput` cross-field validator, replacing them with tests proving
+the new deterministic design: the wire schema is one flat object with no
+`anyOf`/`oneOf`; it has no `status` property; `required_revisions` is in
+`schema["required"]` with no `minItems`/`maxItems` tying it to anything
+else; a stray `status` field from the model is rejected outright (not
+silently dropped); `derive_critic_status([])` is `PASS` and
+`derive_critic_status([...])` is `REVISE`; and `run_critic` now derives
+`PASS` from an empty `required_revisions` array with no `status` field
+present at all -- the literal shape that would have been an error under
+the old contract is simply a valid pass under the new one. The domain
+`CriticOutput` tests (still requiring `status`, still exposing exactly the
+same six fields) are unchanged. `tests/test_pipeline.py` and
+`tests/test_orchestrator.py`'s fake critic payloads were updated to the
+new wire shape (no `status` key). `tests/test_api.py` gained tests proving
+a `CriticError`/`AnalystError`/`RevisionError` raised by `run_analysis`
+comes back as the structured 502 body above, with no leaked exception text
+in the response.
+
+### Test result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result: **313 / 313 passed** (305 baseline + 8 net new/changed). 0
+failures, 0 errors. `git diff --check` reported no whitespace errors. No
+network, Gemini, GitHub, or live n8n execution occurred during this
+repair -- it was applied statically based on the live finding above.
+
+### Unresolved issues / human validation needed
+
+**HUMAN CHECKPOINT REQUIRED**: this repair has **not yet been re-tested
+live**. Before treating full n8n analysis as demo-ready:
+
+1. Re-run the n8n workflow once (single controlled retry, per repository
+   instruction) and confirm "Run Analysis (HTTP)" now completes with a
+   real critic verdict derived from `required_revisions` (pass with `[]`,
+   or revise with one or more concrete instructions) instead of a
+   `CriticError`/HTTP 500.
+2. If the critic still fails for a genuinely different reason, confirm the
+   API now returns the structured 502 body (`error`/`stage`/`error_type`)
+   instead of an unhandled traceback, so the failure is visible to n8n
+   without exposing internals.
+3. Continue through Human Review & Approval and the approve-path
+   GitHub-issue creation (against a disposable demo repo) if the analysis
+   completes -- these, plus the checks listed in prior rounds, remain the
+   required live checks before Group 3 (or any further live Gemini/GitHub
+   call) begins.
+
+A full successful live n8n analysis (intake through GitHub issue) is NOT
+yet claimed. No real GitHub issue, no real Gemini call, and no live n8n
+execution occurred during this repair.

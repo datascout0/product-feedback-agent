@@ -181,6 +181,72 @@ def test_analyze_surfaces_orchestration_error_as_400(client: TestClient, monkeyp
 
 
 # ---------------------------------------------------------------------------
+# 3b. API hardening (Stage 15 live n8n finding): a model/orchestration-stage
+# error must come back as a small structured JSON body, not an unhandled
+# ASGI exception / generic HTTP 500.
+# ---------------------------------------------------------------------------
+
+
+def test_analyze_surfaces_critic_error_as_structured_502(client: TestClient, monkeypatch):
+    from product_feedback_agent.critic import CriticError
+
+    def _raise(**kwargs):
+        raise CriticError("Critic output failed schema validation: required_revisions Field required")
+
+    monkeypatch.setattr(api_module, "run_analysis", _raise)
+
+    response = client.post("/analyze", json={"feedback_file": "feedback.csv", "analysis_query": "q"})
+
+    assert response.status_code == 502
+    assert response.json() == {"error": "analysis_failed", "stage": "critic", "error_type": "CriticError"}
+
+
+def test_analyze_surfaces_analyst_error_as_structured_502(client: TestClient, monkeypatch):
+    from product_feedback_agent.analyst import AnalystError
+
+    def _raise(**kwargs):
+        raise AnalystError("Analyst returned empty output.")
+
+    monkeypatch.setattr(api_module, "run_analysis", _raise)
+
+    response = client.post("/analyze", json={"feedback_file": "feedback.csv", "analysis_query": "q"})
+
+    assert response.status_code == 502
+    assert response.json() == {"error": "analysis_failed", "stage": "analyst", "error_type": "AnalystError"}
+
+
+def test_analyze_surfaces_revision_error_as_structured_502(client: TestClient, monkeypatch):
+    from product_feedback_agent.pipeline import RevisionError
+
+    def _raise(**kwargs):
+        raise RevisionError("Revision returned empty output.")
+
+    monkeypatch.setattr(api_module, "run_analysis", _raise)
+
+    response = client.post("/analyze", json={"feedback_file": "feedback.csv", "analysis_query": "q"})
+
+    assert response.status_code == 502
+    assert response.json() == {"error": "analysis_failed", "stage": "revision", "error_type": "RevisionError"}
+
+
+def test_analyze_critic_error_response_does_not_leak_exception_message(client: TestClient, monkeypatch):
+    from product_feedback_agent.critic import CriticError
+
+    secret_looking_detail = "sekrit-model-response-content-do-not-leak"
+
+    def _raise(**kwargs):
+        raise CriticError(secret_looking_detail)
+
+    monkeypatch.setattr(api_module, "run_analysis", _raise)
+
+    response = client.post("/analyze", json={"feedback_file": "feedback.csv", "analysis_query": "q"})
+
+    assert response.status_code == 502
+    assert secret_looking_detail not in response.text
+    assert set(response.json().keys()) == {"error", "stage", "error_type"}
+
+
+# ---------------------------------------------------------------------------
 # 4. /analyze never invokes the GitHub action
 # ---------------------------------------------------------------------------
 
@@ -483,7 +549,7 @@ def test_analyze_full_stack_respects_group1_request_budget(client: TestClient, m
     opportunities = {"opportunities": [_opportunity(f"opp_{i+1}", records[i]) for i in range(3)]}
     analyst_client = FakeModelClient(opportunities)
     critic_client = FakeModelClient(
-        {"status": "pass", "issues": [], "unsupported_claims": [], "citation_errors": [],
+        {"issues": [], "unsupported_claims": [], "citation_errors": [],
          "duplicate_opportunities": [], "required_revisions": []}
     )
     revision_client = FakeModelClient(opportunities)

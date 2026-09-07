@@ -129,8 +129,8 @@ class FakeClient:
 
 
 def _pass_critic_payload() -> dict:
+    """Wire-shaped payload (as Gemini actually returns it): no status field."""
     return {
-        "status": "pass",
         "issues": [],
         "unsupported_claims": [],
         "citation_errors": [],
@@ -140,8 +140,8 @@ def _pass_critic_payload() -> dict:
 
 
 def _revise_critic_payload() -> dict:
+    """Wire-shaped payload (as Gemini actually returns it): no status field."""
     return {
-        "status": "revise",
         "issues": [
             {
                 "opportunity_id": "opp_1",
@@ -349,7 +349,7 @@ def test_run_revision_invokes_injected_client_exactly_once():
 
     analyst_output = AnalystOutput.model_validate({"opportunities": _three_opportunities()})
     validation_result = validate_analyst_output(analyst_output, packet)
-    critic_output = CriticOutput.model_validate(_revise_critic_payload())
+    critic_output = CriticOutput.model_validate({**_revise_critic_payload(), "status": "revise"})
 
     client = FakeClient({"opportunities": _three_opportunities(affected_segments=["enterprise"])})
     run_revision(packet, analyst_output, validation_result, critic_output, client=client)
@@ -363,7 +363,7 @@ def test_run_revision_prompt_contains_required_revisions_and_prior_findings():
 
     analyst_output = AnalystOutput.model_validate({"opportunities": _three_opportunities()})
     validation_result = validate_analyst_output(analyst_output, packet)
-    critic_output = CriticOutput.model_validate(_revise_critic_payload())
+    critic_output = CriticOutput.model_validate({**_revise_critic_payload(), "status": "revise"})
 
     prompt = build_revision_prompt(packet, analyst_output, validation_result, critic_output)
     assert "Remove 'mobile' from affected_segments for opp_1." in prompt
@@ -378,7 +378,7 @@ def test_run_revision_raises_on_invalid_output():
 
     analyst_output = AnalystOutput.model_validate({"opportunities": _three_opportunities()})
     validation_result = validate_analyst_output(analyst_output, packet)
-    critic_output = CriticOutput.model_validate(_revise_critic_payload())
+    critic_output = CriticOutput.model_validate({**_revise_critic_payload(), "status": "revise"})
 
     client = FakeClient({"opportunities": [_opportunity("opp_1")]})  # only one, invalid
     with pytest.raises(RevisionError):
@@ -392,7 +392,7 @@ def test_run_revision_raises_on_empty_output():
 
     analyst_output = AnalystOutput.model_validate({"opportunities": _three_opportunities()})
     validation_result = validate_analyst_output(analyst_output, packet)
-    critic_output = CriticOutput.model_validate(_revise_critic_payload())
+    critic_output = CriticOutput.model_validate({**_revise_critic_payload(), "status": "revise"})
 
     class EmptyClient:
         def generate_structured(self, *, prompt, response_schema, cache_key):

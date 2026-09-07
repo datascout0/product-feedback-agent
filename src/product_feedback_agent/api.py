@@ -38,6 +38,14 @@ docs/agent-progress.md and docs/decisions.md):
 - No secret (GITHUB_TOKEN, GEMINI_API_KEY) is ever read, logged, or returned
   by this module; those remain read lazily inside github_action.py /
   analyst.py / critic.py exactly as before.
+- Stage 15 n8n live validation surfaced a real CriticError propagating
+  through Starlette as an unhandled ASGI exception (generic HTTP 500, no
+  structured body). `/analyze` now catches the project's known
+  analyst/critic/revision model-stage errors explicitly and returns a small
+  structured JSON body (`ModelStageErrorResponse`, HTTP 502) instead --
+  never an exception message, model response content, or stack trace, and
+  never silently treated as success. Any other, unexpected exception is
+  left to propagate rather than being caught and hidden here.
 """
 
 from __future__ import annotations
@@ -53,6 +61,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from product_feedback_agent.analyst import AnalystError
+from product_feedback_agent.critic import CriticError
 from product_feedback_agent.github_action import (
     GitHubActionError,
     create_opportunity_issue,
@@ -62,9 +72,21 @@ from product_feedback_agent.orchestrator import (
     OrchestrationResult,
     run_analysis,
 )
+from product_feedback_agent.pipeline import RevisionError
 
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
+
+# Known model/orchestration-stage errors that must be reported as a small
+# structured JSON error response (502) rather than propagate through
+# Starlette as an unhandled ASGI exception (see the 2026-09-07 Stage 15 live
+# n8n finding in docs/agent-progress.md: a real CriticError previously
+# produced an uncaught traceback and a generic HTTP 500).
+_MODEL_STAGE_BY_ERROR: dict[type[Exception], str] = {
+    AnalystError: "analyst",
+    CriticError: "critic",
+    RevisionError: "revision",
+}
 
 
 def _project_root() -> Path:
@@ -88,6 +110,22 @@ class ErrorResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     detail: str
+
+
+class ModelStageErrorResponse(BaseModel):
+    """The body returned when a known model/orchestration stage fails.
+
+    Deliberately carries no exception message, model response content, or
+    stack trace -- only which stage failed and the error's type name, so
+    n8n gets a small, structured, non-2xx response instead of an unhandled
+    ASGI exception or a generic HTTP 500 with a leaked traceback.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    error: str = "analysis_failed"
+    stage: str
+    error_type: str
 
 
 class AnalyzeRequest(BaseModel):
@@ -167,6 +205,12 @@ async def analyze(request: Request) -> JSONResponse:
         return JSONResponse(ErrorResponse(detail=str(exc)).model_dump(), status_code=400)
     except OSError as exc:
         return JSONResponse(ErrorResponse(detail=f"Could not read input file: {exc}").model_dump(), status_code=400)
+    except (AnalystError, CriticError, RevisionError) as exc:
+        stage = _MODEL_STAGE_BY_ERROR[type(exc)]
+        return JSONResponse(
+            ModelStageErrorResponse(stage=stage, error_type=type(exc).__name__).model_dump(),
+            status_code=502,
+        )
 
     return JSONResponse(json.loads(result.model_dump_json()))
 

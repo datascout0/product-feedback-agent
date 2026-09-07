@@ -141,8 +141,8 @@ def _three_opportunities(records, doc, **kwargs) -> list[dict]:
 
 
 def _pass_critic_payload() -> dict:
+    """Wire-shaped payload (as Gemini actually returns it): no status field."""
     return {
-        "status": "pass",
         "issues": [],
         "unsupported_claims": [],
         "citation_errors": [],
@@ -152,8 +152,8 @@ def _pass_critic_payload() -> dict:
 
 
 def _revise_critic_payload() -> dict:
+    """Wire-shaped payload (as Gemini actually returns it): no status field."""
     return {
-        "status": "revise",
         "issues": [
             {
                 "opportunity_id": "opp_1",
@@ -356,7 +356,7 @@ def test_no_execution_path_exceeds_three_model_requests(project, fake_retrieval,
     records = _real_records(project)
     doc = _real_doc(project)
 
-    for critic_payload in (_pass_critic_payload(), _revise_critic_payload()):
+    for label, critic_payload in (("pass", _pass_critic_payload()), ("revise", _revise_critic_payload())):
         analyst_client = FakeClient(
             {"opportunities": _three_opportunities(records, doc, affected_segments=["mobile"])}
         )
@@ -369,7 +369,7 @@ def test_no_execution_path_exceeds_three_model_requests(project, fake_retrieval,
             feedback_file=project / "feedback.csv",
             context_files=[project / "roadmap.md"],
             analysis_query="search filtering",
-            cache_dir=tmp_path / f"cache-{critic_payload['status']}",
+            cache_dir=tmp_path / f"cache-{label}",
             retrieval=FakeRetrieval(),
             analyst_client=analyst_client,
             critic_client=critic_client,

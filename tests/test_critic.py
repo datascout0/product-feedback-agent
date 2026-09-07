@@ -4,10 +4,9 @@ import subprocess
 import sys
 import types
 from pathlib import Path
-from typing import Any
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from product_feedback_agent.analysis_context import (
     AnalysisContextPacket,
@@ -23,13 +22,12 @@ from product_feedback_agent.critic import (
     CriticIssue,
     CriticIssueType,
     CriticOutput,
-    CriticPassResponse,
-    CriticReviseResponse,
     CriticStatus,
     CriticWireResponse,
     GeminiCriticClient,
     build_critic_prompt,
     build_critic_response_schema,
+    derive_critic_status,
     run_critic,
 )
 from product_feedback_agent.validation import validate_analyst_output
@@ -136,6 +134,7 @@ def validation_result(packet, analyst_output):
 
 
 def _pass_payload() -> dict:
+    """Domain-shaped CriticOutput payload (includes status)."""
     return {
         "status": "pass",
         "issues": [],
@@ -147,6 +146,7 @@ def _pass_payload() -> dict:
 
 
 def _revise_payload() -> dict:
+    """Domain-shaped CriticOutput payload (includes status)."""
     return {
         "status": "revise",
         "issues": [
@@ -163,6 +163,20 @@ def _revise_payload() -> dict:
     }
 
 
+def _wire_pass_payload() -> dict:
+    """Wire-shaped payload (as Gemini actually returns it): no status field."""
+    payload = _pass_payload()
+    del payload["status"]
+    return payload
+
+
+def _wire_revise_payload() -> dict:
+    """Wire-shaped payload (as Gemini actually returns it): no status field."""
+    payload = _revise_payload()
+    del payload["status"]
+    return payload
+
+
 class FakeCriticClient:
     """Records calls and returns a preset raw JSON string."""
 
@@ -176,7 +190,8 @@ class FakeCriticClient:
 
 
 # ---------------------------------------------------------------------------
-# Schema: status/required_revisions constraint, enums
+# Domain schema: CriticOutput (status is a plain field here -- constructed
+# locally by run_critic, never parsed directly from raw Gemini JSON anymore).
 # ---------------------------------------------------------------------------
 
 
@@ -190,13 +205,6 @@ def test_revise_status_with_required_revisions_is_valid():
     output = CriticOutput.model_validate(_revise_payload())
     assert output.status == CriticStatus.REVISE
     assert len(output.required_revisions) >= 1
-
-
-def test_revise_status_without_required_revisions_is_rejected():
-    payload = _revise_payload()
-    payload["required_revisions"] = []
-    with pytest.raises(ValidationError):
-        CriticOutput.model_validate(payload)
 
 
 def test_invalid_status_value_is_rejected():
@@ -245,104 +253,114 @@ def test_critic_output_has_no_roadmap_or_action_fields():
 
 
 # ---------------------------------------------------------------------------
-# Wire (structured-output) schema: regression for the second real Group 1
-# failure. The real critic twice returned status="revise" with
-# required_revisions=[] -- Pydantic's CriticOutput.model_validator correctly
-# rejected it, but that cross-field rule was invisible in the flat
-# CriticOutput.model_json_schema() sent to Gemini, so prompt wording alone
-# was relied on and failed twice. build_critic_response_schema() now sends
-# an explicit pass/revise anyOf union whose per-branch minItems/maxItems
-# encode the same rule structurally.
+# Wire (structured-output) schema: regression for the THIRD real Group 1/
+# Stage 15 failure (see docs/results-log.md 2026-09-07 Stage 15 n8n live
+# finding). The real critic returned status="revise" with
+# required_revisions=[] a third time, this time against the pass/revise
+# anyOf union schema from the second fix -- proving that constraining a
+# model-produced `status` field further (prompt wording, then a schema
+# union) does not work: any redundant model-controlled state can still end
+# up inconsistent. The architectural fix removes `status` from the wire
+# contract entirely. CriticWireResponse is one flat object; Gemini is never
+# asked for `status`, and CriticStatus is derived deterministically in
+# Python from required_revisions via derive_critic_status().
 # ---------------------------------------------------------------------------
 
 
-def test_critic_response_schema_offers_exactly_two_pass_revise_alternatives():
+def test_critic_response_schema_is_one_flat_object_not_anyof():
     schema = build_critic_response_schema()
-    alternatives = schema.get("anyOf") or schema.get("oneOf")
-    assert alternatives is not None, "response schema must use anyOf/oneOf"
-    assert len(alternatives) == 2
-
-    ref_names = {alt["$ref"].rsplit("/", 1)[-1] for alt in alternatives}
-    assert ref_names == {"CriticPassResponse", "CriticReviseResponse"}
+    assert schema.get("anyOf") is None
+    assert schema.get("oneOf") is None
+    assert schema.get("type") == "object"
 
 
-def test_critic_response_schema_revise_branch_requires_at_least_one_revision():
+def test_critic_response_schema_has_no_status_field():
     schema = build_critic_response_schema()
-    revise_schema = schema["$defs"]["CriticReviseResponse"]
-    required_revisions_schema = revise_schema["properties"]["required_revisions"]
-    assert required_revisions_schema["minItems"] == 1
-    assert "required_revisions" in revise_schema["required"]
+    assert "status" not in schema.get("properties", {})
 
 
-def test_critic_response_schema_pass_branch_forbids_revision_instructions():
+def test_critic_response_schema_required_revisions_is_required_array_of_strings():
     schema = build_critic_response_schema()
-    pass_schema = schema["$defs"]["CriticPassResponse"]
-    required_revisions_schema = pass_schema["properties"]["required_revisions"]
-    assert required_revisions_schema["maxItems"] == 0
+    assert "required_revisions" in schema.get("required", [])
+    required_revisions_schema = schema["properties"]["required_revisions"]
+    assert required_revisions_schema["type"] == "array"
+    assert required_revisions_schema["items"]["type"] == "string"
+    # No minItems/maxItems constraint tying this to any other field --
+    # required_revisions is allowed to be empty.
+    assert "minItems" not in required_revisions_schema
+    assert "maxItems" not in required_revisions_schema
 
 
-def _wire_findings(**overrides: Any) -> dict:
-    payload = {
-        "issues": [],
-        "unsupported_claims": [],
-        "citation_errors": [],
-        "duplicate_opportunities": [],
-    }
-    payload.update(overrides)
-    return payload
+def test_wire_response_model_has_no_status_field():
+    assert "status" not in CriticWireResponse.model_fields
 
 
-def test_wire_schema_parses_valid_pass_output():
-    adapter = TypeAdapter(CriticWireResponse)
-    parsed = adapter.validate_python(
-        _wire_findings(status="pass", required_revisions=[])
-    )
-    assert isinstance(parsed, CriticPassResponse)
+def test_wire_schema_parses_empty_required_revisions():
+    parsed = CriticWireResponse.model_validate(_wire_pass_payload())
     assert parsed.required_revisions == []
 
 
-def test_wire_schema_parses_valid_revise_output_with_a_required_revision():
-    adapter = TypeAdapter(CriticWireResponse)
-    parsed = adapter.validate_python(
-        _wire_findings(status="revise", required_revisions=["Merge opp_2 into opp_1."])
+def test_wire_schema_parses_nonempty_required_revisions():
+    parsed = CriticWireResponse.model_validate(
+        {**_wire_pass_payload(), "required_revisions": ["Merge opp_2 into opp_1."]}
     )
-    assert isinstance(parsed, CriticReviseResponse)
     assert parsed.required_revisions == ["Merge opp_2 into opp_1."]
 
 
-def test_wire_schema_rejects_revise_with_empty_required_revisions():
-    adapter = TypeAdapter(CriticWireResponse)
+def test_wire_schema_rejects_a_status_field_from_the_model():
+    # extra="forbid": if Gemini still emits a stray status field, it is
+    # rejected outright rather than silently accepted/ignored.
     with pytest.raises(ValidationError):
-        adapter.validate_python(_wire_findings(status="revise", required_revisions=[]))
+        CriticWireResponse.model_validate({**_wire_pass_payload(), "status": "pass"})
 
 
-def test_wire_schema_rejects_pass_with_nonempty_required_revisions():
-    adapter = TypeAdapter(CriticWireResponse)
+def test_wire_schema_requires_required_revisions_key_to_be_present():
+    payload = _wire_pass_payload()
+    del payload["required_revisions"]
     with pytest.raises(ValidationError):
-        adapter.validate_python(
-            _wire_findings(status="pass", required_revisions=["should not be allowed"])
-        )
+        CriticWireResponse.model_validate(payload)
 
 
-def test_run_critic_rejects_real_failure_shape_revise_with_no_required_revisions(
+def test_derive_critic_status_empty_required_revisions_is_pass():
+    assert derive_critic_status([]) == CriticStatus.PASS
+
+
+def test_derive_critic_status_nonempty_required_revisions_is_revise():
+    assert derive_critic_status(["Merge opp_2 into opp_1."]) == CriticStatus.REVISE
+
+
+def test_run_critic_derives_pass_from_empty_required_revisions(
     packet, analyst_output, validation_result
 ):
-    # This is the literal shape the real Gemini critic returned twice live:
-    # status="revise", required_revisions=[]. It must still be rejected --
-    # now caught by the wire schema/adapter, and CriticOutput's own
-    # model_validator remains as a second, unremoved guardrail.
-    payload = _revise_payload()
-    payload["required_revisions"] = []
+    # The literal shape the real Gemini critic returned three times live for
+    # the "no revision needed" case is now simply a valid pass: no status
+    # field is sent at all, and an empty required_revisions array is not an
+    # error -- it deterministically derives CriticStatus.PASS.
+    client = FakeCriticClient(_wire_pass_payload())
+    result = run_critic(packet, analyst_output, validation_result, client=client)
+    assert result.status == CriticStatus.PASS
+    assert result.required_revisions == []
+
+
+def test_run_critic_derives_revise_from_nonempty_required_revisions(
+    packet, analyst_output, validation_result
+):
+    client = FakeCriticClient(_wire_revise_payload())
+    result = run_critic(packet, analyst_output, validation_result, client=client)
+    assert result.status == CriticStatus.REVISE
+    assert result.required_revisions == _wire_revise_payload()["required_revisions"]
+
+
+def test_run_critic_rejects_a_stray_status_field_in_the_raw_response(
+    packet, analyst_output, validation_result
+):
+    # If the model still emits a status field despite the prompt/schema no
+    # longer asking for one, it must be rejected (extra="forbid"), not
+    # silently accepted -- this is not a fallback or silent repair.
+    payload = {**_wire_pass_payload(), "status": "revise"}
     client = FakeCriticClient(payload)
     with pytest.raises(CriticError):
         run_critic(packet, analyst_output, validation_result, client=client)
-
-
-def test_critic_output_model_validator_still_rejects_revise_with_empty_required_revisions():
-    # Unremoved guardrail: even bypassing run_critic/the wire adapter
-    # entirely, CriticOutput itself still refuses this shape directly.
-    with pytest.raises(ValidationError):
-        CriticOutput.model_validate({**_revise_payload(), "required_revisions": []})
 
 
 # ---------------------------------------------------------------------------
@@ -375,20 +393,31 @@ def test_prompt_states_critic_cannot_take_autonomous_action(packet, analyst_outp
 def test_prompt_states_revise_requires_non_empty_required_revisions(
     packet, analyst_output, validation_result
 ):
-    # Regression for the live Group 1 smoke failure: Gemini returned
-    # status="revise" with required_revisions=[], which Pydantic correctly
-    # rejected. The prompt must explicitly instruct the model never to do
-    # this rather than relying on schema validation alone.
+    # Regression for the live Group 1 smoke failures: Gemini repeatedly
+    # returned status="revise" with required_revisions=[]. The prompt no
+    # longer asks for status at all; it must instead instruct the model on
+    # required_revisions directly as the sole verdict field.
     prompt = build_critic_prompt(packet, analyst_output, validation_result)
-    assert 'If status="revise", required_revisions MUST contain at least one concrete,' in prompt
+    assert "Each entry must be a concrete, actionable revision instruction" in prompt
     assert "actionable revision instruction" in prompt
 
 
-def test_prompt_explicitly_prohibits_revise_with_empty_required_revisions(
+def test_prompt_does_not_ask_the_model_for_a_status_field(
     packet, analyst_output, validation_result
 ):
     prompt = build_critic_prompt(packet, analyst_output, validation_result)
-    assert 'NEVER return status="revise" with an empty required_revisions list' in prompt
+    assert "There is no separate\nstatus field in your response" in prompt
+    assert 'status="revise"' not in prompt
+    assert 'status="pass"' not in prompt
+
+
+def test_prompt_requires_empty_array_rather_than_inventing_a_revision(
+    packet, analyst_output, validation_result
+):
+    prompt = build_critic_prompt(packet, analyst_output, validation_result)
+    assert (
+        "return an empty required_revisions array instead of inventing one" in prompt
+    )
 
 
 def test_prompt_requires_deterministic_findings_to_produce_revise_and_revisions(
@@ -415,39 +444,41 @@ def test_prompt_requires_every_issue_to_have_a_matching_required_revision(
 
 
 def test_run_critic_invokes_injected_client_exactly_once(packet, analyst_output, validation_result):
-    client = FakeCriticClient(_pass_payload())
+    client = FakeCriticClient(_wire_pass_payload())
     run_critic(packet, analyst_output, validation_result, client=client)
     assert len(client.calls) == 1
 
 
 def test_run_critic_passes_cache_key_to_client(packet, analyst_output, validation_result):
-    client = FakeCriticClient(_pass_payload())
+    client = FakeCriticClient(_wire_pass_payload())
     run_critic(packet, analyst_output, validation_result, client=client)
     assert client.calls[0]["cache_key"] == "fake_cache_key_123"
 
 
 def test_run_critic_passes_response_schema_to_client(packet, analyst_output, validation_result):
-    client = FakeCriticClient(_pass_payload())
+    client = FakeCriticClient(_wire_pass_payload())
     run_critic(packet, analyst_output, validation_result, client=client)
     assert client.calls[0]["response_schema"] == build_critic_response_schema()
 
 
 def test_run_critic_returns_pass_output(packet, analyst_output, validation_result):
-    client = FakeCriticClient(_pass_payload())
+    client = FakeCriticClient(_wire_pass_payload())
     result = run_critic(packet, analyst_output, validation_result, client=client)
     assert result.status == CriticStatus.PASS
 
 
 def test_run_critic_returns_revise_output(packet, analyst_output, validation_result):
-    client = FakeCriticClient(_revise_payload())
+    client = FakeCriticClient(_wire_revise_payload())
     result = run_critic(packet, analyst_output, validation_result, client=client)
     assert result.status == CriticStatus.REVISE
     assert result.required_revisions == ["Merge opp_2 into opp_1 and reduce its confidence score."]
 
 
-def test_run_critic_raises_on_invalid_client_output(packet, analyst_output, validation_result):
-    payload = _revise_payload()
-    payload["required_revisions"] = []
+def test_run_critic_raises_on_invalid_issue_type_in_client_output(
+    packet, analyst_output, validation_result
+):
+    payload = _wire_revise_payload()
+    payload["issues"][0]["issue_type"] = "not_a_real_issue_type"
     client = FakeCriticClient(payload)
     with pytest.raises(CriticError):
         run_critic(packet, analyst_output, validation_result, client=client)
@@ -556,7 +587,7 @@ def test_real_client_success_writes_trace_without_api_key(monkeypatch, tmp_path)
     secret_key = "sekrit-test-key-do-not-leak"
     monkeypatch.setenv("GEMINI_API_KEY", secret_key)
 
-    payload = json.dumps(_pass_payload())
+    payload = json.dumps(_wire_pass_payload())
     interactions = _FakeInteractions(output_text=payload, usage={"input_tokens": 100, "output_tokens": 50})
     _install_fake_genai(monkeypatch, interactions)
 

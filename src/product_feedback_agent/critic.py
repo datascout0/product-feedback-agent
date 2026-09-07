@@ -27,9 +27,9 @@ import time
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from product_feedback_agent.analysis_context import AnalysisContextPacket
 from product_feedback_agent.analyst import AnalystOutput
@@ -95,41 +95,49 @@ class CriticOutput(BaseModel):
     duplicate_opportunities: list[str] = Field(default_factory=list)
     required_revisions: list[str] = Field(default_factory=list)
 
-    @model_validator(mode="after")
-    def _revise_requires_required_revisions(self) -> "CriticOutput":
-        if self.status == CriticStatus.REVISE and not self.required_revisions:
-            raise ValueError(
-                "status='revise' requires at least one entry in required_revisions."
-            )
-        return self
+
+def derive_critic_status(required_revisions: list[str]) -> CriticStatus:
+    """Deterministically derive CriticStatus from required_revisions.
+
+    non-empty required_revisions => REVISE, empty => PASS. This is the only
+    place CriticStatus is decided -- it is never trusted from the model (see
+    the wire schema section below).
+    """
+    return CriticStatus.REVISE if required_revisions else CriticStatus.PASS
 
 
 # ---------------------------------------------------------------------------
-# Wire (structured-output) schema: pass/revise as two distinct JSON Schema
-# alternatives, so the status <-> required_revisions relationship is
-# enforced by the schema Gemini actually receives, not only by the
-# CriticOutput model_validator above.
+# Wire (structured-output) schema.
 #
-# Background (see docs/agent-progress.md Stage 12b and the second live
-# failure this fix addresses): the real critic twice returned
-# status="revise" with required_revisions=[] despite the prompt explicitly
-# prohibiting it. Pydantic's cross-field model_validator correctly rejected
-# both responses, but that rule is invisible in CriticOutput.model_json_schema()
-# -- a flat schema where required_revisions is just `list[str]` with no
-# length constraint tied to status. Prompt wording alone was insufficient.
+# Background (see docs/agent-progress.md Stage 12b/12c and the third live
+# failure this fix addresses, in docs/results-log.md 2026-09-07 Stage 15):
+# the real critic THREE times returned status="revise" with
+# required_revisions=[] -- first rejected by a prompt-only rule, then by a
+# pass/revise anyOf wire union (CriticPassResponse/CriticReviseResponse)
+# whose per-branch minItems/maxItems tied required_revisions' length to a
+# model-produced status field. All three attempts still let Gemini produce
+# a `status` value that could disagree with `required_revisions`, and the
+# union's own cross-branch invariant is itself invisible in a flat JSON
+# Schema for any client that flattens anyOf (as the live n8n/Gemini failure
+# proved again).
 #
-# CriticPassResponse/CriticReviseResponse below are structurally identical
-# to CriticOutput except status is a Literal (not the general enum) and
-# required_revisions carries a length constraint (maxItems=0 / minItems=1)
-# that a JSON-Schema-constrained decoder can enforce at generation time.
-# Every parsed wire response is then re-validated through CriticOutput
-# (which keeps its own guardrail) so the rest of the pipeline keeps using
-# the same domain type.
+# The fix removes `status` from the wire contract entirely rather than
+# constraining it further: CriticWireResponse below asks Gemini for its
+# review findings ONLY, with `required_revisions` as an always-present
+# (possibly empty) array. Python derives CriticStatus deterministically
+# from required_revisions (see derive_critic_status above) -- there is no
+# model-produced field left to disagree with it.
 # ---------------------------------------------------------------------------
 
 
-class _CriticWireFindings(BaseModel):
-    """Fields shared by both pass/revise wire alternatives."""
+class CriticWireResponse(BaseModel):
+    """The structured-output schema actually sent to (and parsed from) Gemini.
+
+    Deliberately contains NO status field: status is derived locally by
+    derive_critic_status(required_revisions), never trusted from the model.
+    required_revisions has no default, so it is always present in
+    model_json_schema()'s "required" list -- it may still be an empty list.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -137,36 +145,16 @@ class _CriticWireFindings(BaseModel):
     unsupported_claims: list[str] = Field(default_factory=list)
     citation_errors: list[str] = Field(default_factory=list)
     duplicate_opportunities: list[str] = Field(default_factory=list)
-
-
-class CriticPassResponse(_CriticWireFindings):
-    """Wire alternative for status="pass": required_revisions MUST be empty."""
-
-    status: Literal[CriticStatus.PASS]
-    required_revisions: list[str] = Field(default_factory=list, max_length=0)
-
-
-class CriticReviseResponse(_CriticWireFindings):
-    """Wire alternative for status="revise": required_revisions MUST be non-empty."""
-
-    status: Literal[CriticStatus.REVISE]
-    required_revisions: list[str] = Field(min_length=1)
-
-
-CriticWireResponse = CriticPassResponse | CriticReviseResponse
-
-_CRITIC_RESPONSE_ADAPTER: TypeAdapter[CriticWireResponse] = TypeAdapter(CriticWireResponse)
+    required_revisions: list[str]
 
 
 def build_critic_response_schema() -> dict[str, Any]:
     """Return the structured-output JSON schema actually sent to the critic model.
 
-    An anyOf of the two wire alternatives above, so status="pass" structurally
-    forces required_revisions to maxItems 0 and status="revise" structurally
-    forces it to minItems 1 -- enforced by the schema, not only by prompt
-    wording or a post-hoc Pydantic validator.
+    One flat object schema (no anyOf/oneOf, no status field). required_revisions
+    is a required array[string] that may be empty.
     """
-    return _CRITIC_RESPONSE_ADAPTER.json_schema()
+    return CriticWireResponse.model_json_schema()
 
 
 # ---------------------------------------------------------------------------
@@ -216,30 +204,32 @@ You do not decide the roadmap, create any external record (e.g. a GitHub issue),
 change any permission, or take any action beyond returning this structured
 review. You only report findings.
 
-Status and required_revisions rules (follow these exactly):
+required_revisions rules (follow these exactly). There is no separate
+status field in your response -- required_revisions IS your verdict:
 
-- Return status="pass" ONLY when the analyst output requires no changes at
-  all -- none of the 11 checks above found anything that would materially
-  mislead someone deciding whether to act on this opportunity.
-- Return status="revise" whenever the analyst output requires ANY change,
-  including a deterministic validation finding above that requires an
-  analyst-side correction -- for example an unsupported affected_segments
-  value (including a product_area value used as if it were a customer
-  segment), an invalid feedback/context ID, or a non-exact quotation. Those
-  deterministic findings are evidence you must act on, not skip because code
-  already flagged them.
-- If status="revise", required_revisions MUST contain at least one concrete,
-  actionable revision instruction (e.g. "merge opp_2 into opp_1", "remove
-  'mobile' from affected_segments for opp_2 since it is a product_area, not a
-  customer segment").
+- required_revisions MUST always be present in your response, as an array
+  of strings. It is valid, and expected, for it to be an empty array `[]`.
+- Return an empty required_revisions array ONLY when the analyst output
+  requires no changes at all -- none of the 11 checks above found anything
+  that would materially mislead someone deciding whether to act on this
+  opportunity.
+- Return one or more concrete, actionable strings in required_revisions
+  whenever the analyst output requires ANY change, including a
+  deterministic validation finding above that requires an analyst-side
+  correction -- for example an unsupported affected_segments value
+  (including a product_area value used as if it were a customer segment),
+  an invalid feedback/context ID, or a non-exact quotation. Those
+  deterministic findings are evidence you must act on, not skip because
+  code already flagged them.
+- Each entry must be a concrete, actionable revision instruction (e.g.
+  "merge opp_2 into opp_1", "remove 'mobile' from affected_segments for
+  opp_2 since it is a product_area, not a customer segment").
 - Every issue you list in `issues` that requires changing the analyst output
   must have a corresponding actionable entry in required_revisions -- do not
   report a problem without also giving the instruction to fix it.
-- NEVER return status="revise" with an empty required_revisions list. This
-  is an invalid response that will be rejected outright. If you cannot name
-  at least one concrete, actionable revision instruction, that means nothing
-  actually requires changing the analyst output, so return status="pass"
-  instead.
+- If you cannot name at least one concrete, actionable revision instruction,
+  that means nothing actually requires changing the analyst output, so
+  return an empty required_revisions array instead of inventing one.
 
 Respond with JSON matching the supplied schema exactly. Do not include any
 text outside the JSON object.
@@ -312,16 +302,23 @@ def run_critic(
         raise CriticError(f"Critic output is not valid JSON: {exc}") from exc
 
     try:
-        wire_output = _CRITIC_RESPONSE_ADAPTER.validate_python(data)
+        wire_output = CriticWireResponse.model_validate(data)
     except ValidationError as exc:
         raise CriticError(f"Critic output failed schema validation: {exc}") from exc
 
-    # Re-validate through the existing domain model so CriticOutput's own
-    # guardrail (and the rest of the pipeline's API) stays unchanged. This
-    # should never fail given the wire schema above, but it is kept as
-    # defense in depth rather than removed.
+    # status is never trusted from the model: it is derived deterministically
+    # from required_revisions, then combined with the wire findings to build
+    # the domain CriticOutput the rest of the pipeline uses.
+    status = derive_critic_status(wire_output.required_revisions)
     try:
-        return CriticOutput.model_validate(wire_output.model_dump(mode="json"))
+        return CriticOutput(
+            status=status,
+            issues=wire_output.issues,
+            unsupported_claims=wire_output.unsupported_claims,
+            citation_errors=wire_output.citation_errors,
+            duplicate_opportunities=wire_output.duplicate_opportunities,
+            required_revisions=wire_output.required_revisions,
+        )
     except ValidationError as exc:
         raise CriticError(f"Critic output failed schema validation: {exc}") from exc
 
