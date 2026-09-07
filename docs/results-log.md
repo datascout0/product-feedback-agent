@@ -640,3 +640,57 @@ Breakdown:
 - 162 previously-passing tests remained passing
 - 0 failures, 0 errors
 - No network or Gemini requests were made
+
+---
+
+## 2026-09-07 — Bounded Analyst/Critic/Revision Pipeline
+
+### Implementation
+
+Implemented `product_feedback_agent.pipeline`: `run_pipeline(...)` runs
+analyst (request 1) -> deterministic validation -> critic (request 2), and,
+only when the critic returns `status="revise"`, exactly one revision
+request (request 3, via a new `GeminiRevisionClient` mirroring
+`analyst.py`/`critic.py`'s lazy-client pattern) followed by a local
+re-validation. The critic is never called a second time. There is no loop
+in this module; no code path can reach a 4th model request.
+
+### Seeded Revision Demonstration
+
+`tests/test_pipeline.py::test_remaining_deterministic_issues_after_revision_are_surfaced_not_hidden`
+seeds a critic "revise" verdict (on an opportunity that misuses the
+product_area value "mobile" as a segment) and a revision response that
+still fails to fix it. Verified offline:
+
+- exactly 3 total model requests were made (1 analyst + 1 critic +
+  1 revision)
+- the critic was not invoked a second time
+- the deterministic validator still flagged `segment == "mobile"` as
+  unsupported in the final result, i.e. the unresolved issue was surfaced,
+  not hidden and not silently repaired
+
+`test_revised_output_is_revalidated_against_the_original_packet` seeds a
+successful revision (segment corrected to "enterprise") and confirms the
+final `validation_result` matches a fresh direct
+`validate_analyst_output(revised_output, packet)` call -- i.e. revalidation
+genuinely re-runs against the revised opportunities, not the original
+draft.
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**200 / 200 tests passed**
+
+Breakdown:
+
+- 13 new pipeline/revision tests passed
+- 187 previously-passing tests remained passing
+- 0 failures, 0 errors
+- No network or Gemini requests were made
+- Confirmed via test assertions: critic-pass runs make exactly 2 model
+  requests; critic-revise runs make exactly 3; no execution path exceeds 3

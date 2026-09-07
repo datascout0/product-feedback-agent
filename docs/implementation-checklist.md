@@ -119,8 +119,8 @@ Last updated: 2026-09-02
 - [x] Check contradictory evidence
 - [x] Check unsupported segment claims
 - [x] Check roadmap/context citations
-- [ ] Implement conditional single revision
-- [ ] Demonstrate one seeded revision case
+- [x] Implement conditional single revision
+- [x] Demonstrate one seeded revision case
 
 ## n8n
 

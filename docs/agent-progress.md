@@ -128,17 +128,80 @@ applied to the Stage 9 analyst).
 
 ## Stage 12 — One conditional revision
 
-**Status:** pending
+**Status:** Complete
+
+### Files added
+
+- `src/product_feedback_agent/pipeline.py`
+- `tests/test_pipeline.py`
+
+### What it does
+
+`run_pipeline(packet, *, analyst_client=None, critic_client=None, revision_client=None) -> PipelineResult`
+is the bounded Group 1 orchestration function:
+
+1. `run_analyst(packet, ...)` — request 1.
+2. `validate_analyst_output(...)` — deterministic, no request.
+3. `run_critic(packet, analyst_output, validation_result, ...)` — request 2.
+4. If `critic_output.status == "pass"`: return immediately.
+   `model_request_count == 2`, `revised == False`. The revision client is
+   never invoked.
+5. If `critic_output.status == "revise"`: make exactly one
+   `run_revision(...)` request (request 3), reusing `AnalystOutput`/
+   `OpportunityDraft` as the revision's output schema, then re-run
+   `validate_analyst_output(...)` locally against the revised opportunities.
+   `model_request_count == 3`, `revised == True`. The critic is never called
+   a second time -- this matches the locked V1 architecture. Any
+   deterministic issues still present after the single revision remain in
+   the returned `validation_result.issues` for human review; they are never
+   hidden and never trigger another model call.
+
+`run_revision` mirrors `analyst.py`/`critic.py`'s pattern exactly: a
+`GeminiRevisionClient` that is lazy (no `google.genai` import, no env read,
+no network at import time), a dependency-injected client protocol
+(`RevisionClient = AnalystClient`, since the shape is identical), one
+request with no retry, and non-secret tracing with `stage="revision"`.
+
+There is no loop anywhere in this module. The only two code paths are
+"return after critic pass" and "return after exactly one revision" -- a 4th
+request is not structurally reachable.
+
+### Tests
+
+`tests/test_pipeline.py` — 13 tests, all offline (fake clients for analyst,
+critic, and revision). Covers: exactly 2 requests on critic pass, exactly 3
+requests on critic revise, revision client never invoked on a pass, critic
+never invoked twice, no path exceeds 3 total requests (checked for both
+pass and revise branches), revised output is re-validated against the
+original packet (equality-checked against a fresh direct
+`validate_analyst_output` call), and a case where the "revised" draft still
+contains an unsupported segment -- confirming that remaining issue is
+surfaced in the final `validation_result.issues` rather than hidden or
+triggering a second critic/revision call.
+
+### Test result
+
+Full suite: **200 / 200 passed** (187 from Stage 11 + 13 new).
+
+### Unresolved issues / human validation needed
+
+No real Gemini analyst/critic/revision run of the full bounded pipeline has
+been made yet -- Group 1 stays offline by design unless a human explicitly
+requests a real end-to-end smoke test (consistent with the Stage 9 analyst
+smoke test being a deliberate, separate, human-triggered step). A real
+end-to-end smoke run (analyst -> critic -> conditional revision against a
+live packet) is recommended before Group 2 work, to confirm real Gemini
+critic/revision output actually validates against the `CriticOutput`/
+`AnalystOutput` schemas the way the offline fixtures do.
 
 ---
 
-## Next step
+## Next step (Group 2)
 
-Implement Stage 12: a small orchestration function (e.g.
-`src/product_feedback_agent/pipeline.py`) that runs analyst (1 request) ->
-deterministic validation -> critic (2nd request) -> if `status == "revise"`,
-exactly one revision request (3rd, final) -> re-run deterministic
-validation locally. Must never exceed 3 model requests total. Revision
-client will need its own small Pydantic output schema (still exactly three
-opportunities) and prompt, reusing `OpportunityDraft`/`AnalystOutput` shapes
-where possible rather than inventing a new one.
+Group 1 (Stages 10-12) is complete. Group 2 work -- explicitly out of scope
+for this session -- starts with: end-to-end n8n integration wiring analyst
+-> validator -> critic -> revision -> human approval, GitHub issue creation
+(dry-run first, then one approved real issue), the evaluation suite, and
+secondary-domain reuse. See the "n8n", "GitHub REST Action", and
+"Evaluation" sections of `docs/implementation-checklist.md` for the
+itemized remaining work.
