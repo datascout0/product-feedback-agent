@@ -123,12 +123,7 @@ def test_server_can_be_created(server) -> None:
 
 def test_expected_tools_are_registered(server) -> None:
     names = {tool.name for tool in asyncio.run(server.list_tools())}
-    assert names == {"prepare_analysis_context", "search_feedback"}
-
-
-def test_create_opportunity_issue_tool_not_present_yet(server) -> None:
-    names = {tool.name for tool in asyncio.run(server.list_tools())}
-    assert "create_opportunity_issue" not in names
+    assert names == {"prepare_analysis_context", "search_feedback", "create_opportunity_issue"}
 
 
 # ---------------------------------------------------------------------------
@@ -390,3 +385,166 @@ def test_search_feedback_does_not_require_resending_feedback_file(server) -> Non
     result = _call(server, "search_feedback", {"query": "crashes", "top_k": 5})
 
     assert len(result.structured_content["result"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# create_opportunity_issue
+# ---------------------------------------------------------------------------
+
+
+def _orchestration_result_payload() -> dict:
+    """A minimal, hand-built OrchestrationResult dict for MCP tool-argument tests."""
+    opportunity = {
+        "opportunity_id": "opp_1",
+        "title": "Simplify invoice payment",
+        "problem_statement": "Enterprise users find invoice payment confusing.",
+        "underlying_need": "Users need a clear, fast way to understand and pay invoices.",
+        "affected_segments": ["enterprise"],
+        "feedback_ids": ["fb_billing"],
+        "representative_evidence": [
+            {"feedback_id": "fb_billing", "excerpt": "The invoice payment process is confusing."}
+        ],
+        "related_context": [],
+        "evidence_strength": {"score": 4, "rationale": "Supported."},
+        "severity": {"score": 4, "rationale": "Supported."},
+        "segment_breadth": {"score": 2, "rationale": "Supported."},
+        "strategic_alignment": {"score": 3, "rationale": "Supported."},
+        "confidence": {"score": 4, "rationale": "Supported."},
+        "roadmap_status": "Not explicitly addressed.",
+        "contradicting_evidence": [],
+        "evidence_gaps": [],
+        "discovery_questions": [],
+        "recommended_next_step": "Run discovery interviews.",
+    }
+    validated = {
+        "opportunity_id": "opp_1",
+        "evidence_count": 1,
+        "score": {
+            "evidence_strength": 4,
+            "severity": 4,
+            "strategic_alignment": 3,
+            "segment_breadth": 2,
+            "confidence": 4,
+            "total": 67.0,
+        },
+        "issues": [],
+    }
+    return {
+        "cache_key": "ck_mcp_test",
+        "opportunities": [opportunity, opportunity, opportunity],
+        "validation_result": {"opportunities": [validated, validated, validated], "issues": []},
+        "critic_output": {
+            "status": "pass",
+            "issues": [],
+            "unsupported_claims": [],
+            "citation_errors": [],
+            "duplicate_opportunities": [],
+            "required_revisions": [],
+        },
+        "revised": False,
+        "model_request_count": 2,
+        "unresolved_issue_count": 0,
+        "human_review_status": "pending_review",
+    }
+
+
+def test_create_opportunity_issue_not_approved_blocks_write(server) -> None:
+    result = _call(
+        server,
+        "create_opportunity_issue",
+        {
+            "orchestration_result": _orchestration_result_payload(),
+            "opportunity_id": "opp_1",
+            "repo": "org/repo",
+            "approved": False,
+            "dry_run": False,
+            "allowed_repos": ["org/repo"],
+        },
+    )
+
+    assert result.is_error is False
+    assert result.structured_content["status"] == "refused_not_approved"
+    assert result.structured_content["issue_url"] is None
+
+
+def test_create_opportunity_issue_dry_run_makes_no_network_call(server) -> None:
+    result = _call(
+        server,
+        "create_opportunity_issue",
+        {
+            "orchestration_result": _orchestration_result_payload(),
+            "opportunity_id": "opp_1",
+            "repo": "org/repo",
+            "approved": True,
+            "dry_run": True,
+            "allowed_repos": ["org/repo"],
+        },
+    )
+
+    assert result.is_error is False
+    assert result.structured_content["status"] == "dry_run"
+    assert "Simplify invoice payment" in result.structured_content["payload"]["title"]
+
+
+def test_create_opportunity_issue_unsupported_repo_blocked(server) -> None:
+    result = _call(
+        server,
+        "create_opportunity_issue",
+        {
+            "orchestration_result": _orchestration_result_payload(),
+            "opportunity_id": "opp_1",
+            "repo": "someone-else/unrelated",
+            "approved": True,
+            "dry_run": False,
+            "allowed_repos": ["org/repo"],
+        },
+    )
+
+    assert result.is_error is False
+    assert result.structured_content["status"] == "refused_unsupported_repo"
+
+
+def test_create_opportunity_issue_mocked_success_through_mcp(server, monkeypatch) -> None:
+    import product_feedback_agent.github_action as github_action_module
+
+    class FakeClient:
+        def find_issue_by_marker(self, *, repo, marker):
+            return None
+
+        def create_issue(self, *, repo, title, body, labels):
+            return "https://github.com/org/repo/issues/1"
+
+    monkeypatch.setattr(github_action_module, "GitHubRestIssueClient", FakeClient)
+
+    result = _call(
+        server,
+        "create_opportunity_issue",
+        {
+            "orchestration_result": _orchestration_result_payload(),
+            "opportunity_id": "opp_1",
+            "repo": "org/repo",
+            "approved": True,
+            "dry_run": False,
+            "allowed_repos": ["org/repo"],
+        },
+    )
+
+    assert result.is_error is False
+    assert result.structured_content["status"] == "created"
+    assert result.structured_content["issue_url"] == "https://github.com/org/repo/issues/1"
+
+
+def test_create_opportunity_issue_unknown_opportunity_id_fails_clearly(server) -> None:
+    with pytest.raises(Exception, match="opportunity_id"):
+        _call(
+            server,
+            "create_opportunity_issue",
+            {
+                "orchestration_result": _orchestration_result_payload(),
+                "opportunity_id": "does_not_exist",
+                "repo": "org/repo",
+                "approved": True,
+                "dry_run": True,
+                "allowed_repos": ["org/repo"],
+            },
+        )

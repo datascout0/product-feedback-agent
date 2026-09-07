@@ -467,10 +467,125 @@ pipeline; fake clients are sufficient to prove the wiring is correct.
 
 ---
 
-## Next step (Stage 14)
+## Stage 14 — Safe GitHub opportunity issue creation
 
-Stage 14 (safe, human-approved GitHub opportunity issue creation) starts
-next: `create_opportunity_issue` with mandatory `approved=true`, dry-run
-mode, a repo allow-list, lazy credential loading, and duplicate prevention.
-See the "GitHub REST Action" and "MCP" sections of
+**Status:** Complete (offline only; no real GitHub issue was created)
+
+### Files added
+
+- `src/product_feedback_agent/github_action.py`
+- `tests/test_github_action.py`
+- `src/product_feedback_agent/mcp_server.py` (new `create_opportunity_issue` tool)
+- `tests/test_mcp_server.py` (new tool's tests; removed the now-superseded
+  `test_create_opportunity_issue_tool_not_present_yet`, updated
+  `test_expected_tools_are_registered`)
+
+### What it does
+
+`create_opportunity_issue(result: OrchestrationResult, opportunity_id, repo,
+*, approved=False, dry_run=True, allowed_repos=None, client=None) ->
+IssueActionResult` in the new `github_action.py` contains no analysis logic
+-- it only renders an issue payload from an already-produced Stage 13
+`OrchestrationResult` and, only when explicitly approved, submits it:
+
+1. `render_issue_payload` builds the exact issue title/body/labels purely
+   from fields already present on the supplied opportunity and its matching
+   `ValidatedOpportunity` -- problem statement, underlying need, affected
+   segments, representative evidence quotes with `feedback_id`, the locally
+   computed `evidence_count`, the full deterministic score breakdown,
+   roadmap/strategy context, contradicting evidence, evidence gaps,
+   unresolved deterministic validation notes, recommended next step, and
+   the run's `cache_key`. Nothing is fabricated; nothing not already on the
+   result is added.
+2. A deterministic idempotency marker (`build_idempotency_marker`, a SHA-256
+   digest of `cache_key:opportunity_id`) is embedded as an HTML comment in
+   every rendered body.
+3. `create_opportunity_issue` checks, in order: the target `repo` is in the
+   allow-listed set (explicit `allowed_repos`, or else the lazily-read
+   `GITHUB_DEMO_REPO` env var, comma-separated; empty/unset means nothing is
+   allowed) -> `approved is True` -> `dry_run is False`. Any failing check
+   returns a structured `IssueActionResult` (never raises) with the payload
+   still attached, and makes no client call. Only once all three pass does
+   it call `client.find_issue_by_marker(...)`; a match refuses creation as
+   `refused_duplicate` instead of filing a second issue. Only then does it
+   call `client.create_issue(...)`.
+4. `GitHubRestIssueClient` (the real, injectable-away implementation) uses
+   only the Python standard library (`urllib.request`) -- no new
+   dependency. It mirrors `analyst.py`/`critic.py`/`pipeline.py`'s lazy-
+   credential pattern exactly: `GITHUB_TOKEN` is read only inside
+   `_headers()`, never in `__init__` or at import time, and is never
+   included in a raised exception message (`type(exc).__name__` only, same
+   rule as the Gemini clients) or in the non-secret trace log written to
+   `logs/github-actions.jsonl` (gitignored, mirroring `logs/model-calls.jsonl`).
+
+`create_opportunity_issue` is also exposed as an MCP tool in
+`mcp_server.py`, following the file's existing "thin wrapper" design: it
+takes the same arguments (`orchestration_result` as a nested Pydantic
+object, `opportunity_id`, `repo`, `approved`, `dry_run`, `allowed_repos`)
+and wraps `GitHubActionError` as `ToolError`, exactly like the two existing
+tools wrap `IngestionError`/`ContextIngestionError`/`ValueError`.
+
+### Tests
+
+`tests/test_github_action.py` -- 21 tests, all offline. Covers: rendered
+payload contains every required field and no more; the idempotency marker
+is deterministic and unique per (cache_key, opportunity_id); an unknown
+`opportunity_id` raises `GitHubActionError` rather than silently rendering
+nothing; `approved=False` (explicit and default-omitted) blocks the write
+with zero client calls; `dry_run=True` (the default) makes zero client
+calls even when `approved=True`, while still returning the rendered
+payload; an unsupported repo is blocked with zero client calls; an allowed
+repo is accepted and creates an issue via the injected fake client; the
+default allow-list is read from `GITHUB_DEMO_REPO` (comma-separated) and is
+empty (nothing allowed) when unset; a pre-existing idempotency marker
+blocks a duplicate `create_issue` call; `IssueActionResult`'s field set is
+locked; importing the module in a fresh subprocess with `GITHUB_TOKEN`
+stripped succeeds; constructing `GitHubRestIssueClient()` touches neither
+env nor network; a missing token raises a clear `GitHubActionError` whose
+trace log never references a token value; and, with `urllib.request.urlopen`
+mocked (no real network), a full success path (create + find-no-match) and
+a simulated network failure both prove the real token value never appears
+in a raised exception message or the trace log file.
+
+`tests/test_mcp_server.py` -- `test_expected_tools_are_registered` now
+includes `create_opportunity_issue`; 5 new tests cover the tool blocking an
+unapproved write, a dry run producing the rendered payload with zero
+network calls, an unsupported repo being blocked, a fully mocked success
+path (`GitHubRestIssueClient` monkeypatched to a fake, proving the MCP path
+never reaches the real network either), and a clear error for an unknown
+`opportunity_id`.
+
+### Test result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result: **254 / 254 passed** (229 baseline + 21 new github_action tests + 4
+net new/changed mcp_server tests). 0 failures, 0 errors, no network or
+Gemini requests made, and NO real GitHub API call was made anywhere in this
+suite (all `GitHubRestIssueClient` network calls are monkeypatched).
+
+### Unresolved issues / human validation needed
+
+No real GitHub issue was created during this stage, by design -- per the
+task instructions, autonomous implementation must not create a real GitHub
+issue. "Create one approved real GitHub issue" remains unchecked in
+`docs/implementation-checklist.md`'s GitHub REST Action section and is left
+as an explicit, separate, human-approved verification step: a human must
+set `GITHUB_TOKEN` and `GITHUB_DEMO_REPO` (or pass `allowed_repos`
+explicitly) and call `create_opportunity_issue(..., approved=True,
+dry_run=False)` themselves against a real allow-listed demo repository.
+
+---
+
+## Next step (Stage 15)
+
+Stage 15 (n8n workflow + human approval artifacts) starts next: an
+importable workflow JSON under `n8n/workflows/` representing intake ->
+analysis -> structured review -> explicit human approval ->
+approved/rejected paths -> GitHub action only after approval, plus setup
+documentation. Per the task instructions, no live n8n instance is available
+to this session, so any live-workflow validation will be marked HUMAN
+CHECKPOINT REQUIRED rather than claimed. See the "n8n" section of
 `docs/implementation-checklist.md`.

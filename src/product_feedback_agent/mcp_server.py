@@ -34,7 +34,10 @@ from product_feedback_agent.analysis_context import (
     prepare_analysis_context as run_prepare_analysis_context,
 )
 from product_feedback_agent.context import ContextIngestionError, load_context_file
+from product_feedback_agent.github_action import GitHubActionError, IssueActionResult
+from product_feedback_agent.github_action import create_opportunity_issue as run_create_opportunity_issue
 from product_feedback_agent.ingestion import IngestionError, load_feedback_file
+from product_feedback_agent.orchestrator import OrchestrationResult
 from product_feedback_agent.retrieval import DEFAULT_CHROMA_PATH, SemanticRetrieval
 
 SERVER_NAME = "Product Feedback Agent"
@@ -162,6 +165,36 @@ def create_mcp_server(
             )
             for result in results
         ]
+
+    @server.tool()
+    def create_opportunity_issue(
+        orchestration_result: OrchestrationResult,
+        opportunity_id: str,
+        repo: str,
+        approved: bool = False,
+        dry_run: bool = True,
+        allowed_repos: list[str] | None = None,
+    ) -> IssueActionResult:
+        """Render, and only if human-approved, create one opportunity's GitHub issue.
+
+        `approved=False` (the default) and `dry_run=True` (the default) each
+        independently guarantee no GitHub mutation happens: both must be
+        explicitly overridden by a human-approved caller. When `allowed_repos`
+        is omitted, the server falls back to the GITHUB_DEMO_REPO environment
+        variable (read lazily, never at import time).
+        """
+        allow_set = frozenset(allowed_repos) if allowed_repos is not None else None
+        try:
+            return run_create_opportunity_issue(
+                orchestration_result,
+                opportunity_id,
+                repo,
+                approved=approved,
+                dry_run=dry_run,
+                allowed_repos=allow_set,
+            )
+        except GitHubActionError as exc:
+            raise ToolError(str(exc)) from exc
 
     return server
 

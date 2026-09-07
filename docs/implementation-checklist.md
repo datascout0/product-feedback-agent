@@ -87,7 +87,7 @@ Last updated: 2026-09-02
 
 - [x] Implement `prepare_analysis_context`
 - [x] Implement `search_feedback`
-- [ ] Implement `create_opportunity_issue`
+- [x] Implement `create_opportunity_issue`
 - [x] Validate MCP tools with Inspector
 - [ ] Validate MCP server with Claude Code
 - [ ] Save known-good context-packet fixtures
@@ -138,12 +138,12 @@ Last updated: 2026-09-02
 
 ## GitHub REST Action
 
-- [ ] Implement dry-run opportunity issue creation
-- [ ] Require explicit approval
-- [ ] Restrict to allow-listed demo repository
-- [ ] Add duplicate-action prevention
+- [x] Implement dry-run opportunity issue creation
+- [x] Require explicit approval
+- [x] Restrict to allow-listed demo repository
+- [x] Add duplicate-action prevention
 - [ ] Create one approved real GitHub issue
-- [ ] Demonstrate that an unapproved action is blocked
+- [x] Demonstrate that an unapproved action is blocked
 
 ## Evaluation
 

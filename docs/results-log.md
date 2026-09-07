@@ -956,3 +956,64 @@ Breakdown:
 
 No real Gemini call was made for Stage 13; this stage only adds
 orchestration around the already live-validated Group 1 pipeline.
+
+---
+
+## 2026-09-07 — Stage 14: Safe GitHub Opportunity Issue Creation
+
+### Implementation
+
+Added `product_feedback_agent.github_action.create_opportunity_issue`, a
+human-approved, dry-run-capable, allow-listed, duplicate-safe GitHub issue
+action built on the Python standard library (`urllib.request`, no new
+dependency), plus a matching `create_opportunity_issue` MCP tool.
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**254 / 254 tests passed**
+
+Breakdown:
+
+- 21 new `github_action` tests passed
+- `test_mcp_server.py` net +4 (5 new tool tests added; 1 now-superseded
+  "tool not present yet" test removed)
+- 229 previously-passing tests remained passing
+- 0 failures, 0 errors
+- No network or Gemini requests were made
+- No real GitHub API call was made: every `GitHubRestIssueClient` network
+  path in the test suite uses a monkeypatched `urllib.request.urlopen`
+
+### Verified behaviors
+
+- `approved=False` (explicit or omitted) blocks the write and makes zero
+  client calls.
+- `dry_run=True` (the default) makes zero client calls even when approved,
+  while still returning the exact rendered payload.
+- A repo outside the allow-list is refused with zero client calls; the
+  default allow-list (`GITHUB_DEMO_REPO` env var) is empty when unset, so
+  nothing is writable by default.
+- A pre-existing idempotency marker (deterministic SHA-256 of
+  `cache_key:opportunity_id`) blocks a duplicate issue creation.
+- `GITHUB_TOKEN` is read only inside the real client's request methods,
+  never at import time or in `__init__`; a real (secret) token value never
+  appears in a raised exception message or in the non-secret trace log
+  (`logs/github-actions.jsonl`), verified with the real token value present
+  in the environment during the test.
+- Rendered issue content (problem, underlying need, affected segments,
+  evidence quotes + `feedback_id`, evidence count, full score breakdown,
+  roadmap context, contradicting evidence, evidence gaps, unresolved
+  deterministic validation notes, recommended next step, run/cache
+  reference) is drawn only from fields already present on the supplied
+  `OrchestrationResult` -- nothing is fabricated.
+
+### Status
+
+No real GitHub issue was created. Per the task instructions, that step is
+left as an explicit, separate, human-approved verification step (see
+`docs/agent-progress.md` Stage 14).
