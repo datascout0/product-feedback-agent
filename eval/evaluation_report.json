@@ -1,0 +1,312 @@
+{
+  "generated_at_utc": "2026-09-07T21:34:15.914520+00:00",
+  "cases_passed": 34,
+  "cases_executed": 34,
+  "grounding_checks_passed": 10,
+  "grounding_checks_total": 10,
+  "expected_validation_violations_caught": 19,
+  "expected_validation_violations_total": 19,
+  "safety_cases_passed": 9,
+  "safety_cases_total": 9,
+  "by_category": {
+    "structure": {
+      "passed": 5,
+      "total": 5
+    },
+    "grounding": {
+      "passed": 10,
+      "total": 10
+    },
+    "scoring": {
+      "passed": 5,
+      "total": 5
+    },
+    "critic_budget": {
+      "passed": 5,
+      "total": 5
+    },
+    "safety": {
+      "passed": 9,
+      "total": 9
+    }
+  },
+  "cases": [
+    {
+      "case_id": "R1a",
+      "requirement": "1. exactly 3 opportunities",
+      "category": "structure",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "AnalystOutput accepted with 3 opportunities"
+    },
+    {
+      "case_id": "R1b",
+      "requirement": "1. exactly 3 opportunities",
+      "category": "structure",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "2-opportunity AnalystOutput correctly rejected by schema"
+    },
+    {
+      "case_id": "R1c",
+      "requirement": "1. exactly 3 opportunities",
+      "category": "structure",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "4-opportunity AnalystOutput correctly rejected by schema"
+    },
+    {
+      "case_id": "R2a",
+      "requirement": "2. unique opportunity IDs",
+      "category": "structure",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "distinct IDs not flagged as duplicate"
+    },
+    {
+      "case_id": "R2b",
+      "requirement": "2. unique opportunity IDs",
+      "category": "structure",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "found 2 duplicate_opportunity_id issues (expected 2)"
+    },
+    {
+      "case_id": "R3a",
+      "requirement": "3. evidence citations resolve to real feedback IDs",
+      "category": "grounding",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "valid feedback_id citation resolved cleanly"
+    },
+    {
+      "case_id": "R3b",
+      "requirement": "3. evidence citations resolve to real feedback IDs",
+      "category": "grounding",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "invented feedback_id was flagged"
+    },
+    {
+      "case_id": "R4a",
+      "requirement": "4. representative evidence excerpts are exact/verbatim substrings",
+      "category": "grounding",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "exact verbatim excerpt accepted"
+    },
+    {
+      "case_id": "R4b",
+      "requirement": "4. representative evidence excerpts are exact/verbatim substrings",
+      "category": "grounding",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "paraphrased excerpt was flagged"
+    },
+    {
+      "case_id": "R5a",
+      "requirement": "5. affected_segments are supported by source metadata",
+      "category": "grounding",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "segment supported by cited feedback metadata accepted"
+    },
+    {
+      "case_id": "R5b",
+      "requirement": "5. affected_segments are supported by source metadata",
+      "category": "grounding",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "unsupported segment was flagged"
+    },
+    {
+      "case_id": "R6a",
+      "requirement": "6. evidence_count is locally calculated correctly",
+      "category": "scoring",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "evidence_count=2 (expected 2)"
+    },
+    {
+      "case_id": "R6b",
+      "requirement": "6. evidence_count is locally calculated correctly",
+      "category": "scoring",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "evidence_count=1 (expected 1)"
+    },
+    {
+      "case_id": "R7a",
+      "requirement": "7. deterministic scoring formula is calculated correctly",
+      "category": "scoring",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "compute_score()=70.0, manual formula=70.0"
+    },
+    {
+      "case_id": "R7b",
+      "requirement": "7. deterministic scoring formula is calculated correctly",
+      "category": "scoring",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "all-1s=20.0, all-5s=100.0"
+    },
+    {
+      "case_id": "R7c",
+      "requirement": "7. deterministic scoring formula is calculated correctly",
+      "category": "scoring",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "score_a=72.0, score_b=72.0"
+    },
+    {
+      "case_id": "R8a",
+      "requirement": "8. critic PASS/REVISE is derived from required_revisions",
+      "category": "critic_budget",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "derive_critic_status([])=CriticStatus.PASS"
+    },
+    {
+      "case_id": "R8b",
+      "requirement": "8. critic PASS/REVISE is derived from required_revisions",
+      "category": "critic_budget",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "derive_critic_status([...])=CriticStatus.REVISE"
+    },
+    {
+      "case_id": "R8c",
+      "requirement": "8. critic PASS/REVISE is derived from required_revisions",
+      "category": "critic_budget",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "derived status=CriticStatus.REVISE, wire schema has 'status' property=False"
+    },
+    {
+      "case_id": "R9",
+      "requirement": "9. pass path uses exactly 2 model requests",
+      "category": "critic_budget",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "model_request_count=2, total_calls_made=2"
+    },
+    {
+      "case_id": "R10",
+      "requirement": "10. revision path uses exactly 3 requests and never 4",
+      "category": "critic_budget",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "model_request_count=3, total_calls_made=3"
+    },
+    {
+      "case_id": "R11a",
+      "requirement": "11. prompt-injection-like feedback is treated as DATA, not instruction",
+      "category": "safety",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "injected feedback text is confined to the evidence-packet JSON block, not the instruction block"
+    },
+    {
+      "case_id": "R11b",
+      "requirement": "11. prompt-injection-like feedback is treated as DATA, not instruction",
+      "category": "safety",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "status=IssueCreationStatus.REFUSED_NOT_APPROVED, injected text rendered as inert payload content only"
+    },
+    {
+      "case_id": "R12",
+      "requirement": "12. GitHub action requires explicit approval",
+      "category": "safety",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "status=IssueCreationStatus.REFUSED_NOT_APPROVED"
+    },
+    {
+      "case_id": "R13",
+      "requirement": "13. rejected/unapproved paths cannot mutate GitHub",
+      "category": "safety",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "zero client calls made (NeverCallGitHubClient would have raised otherwise)"
+    },
+    {
+      "case_id": "R14a",
+      "requirement": "14. repo allowlist/idempotency protections work",
+      "category": "safety",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "status=IssueCreationStatus.REFUSED_UNSUPPORTED_REPO"
+    },
+    {
+      "case_id": "R14b",
+      "requirement": "14. repo allowlist/idempotency protections work",
+      "category": "safety",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "status=IssueCreationStatus.REFUSED_DUPLICATE, create_calls=0"
+    },
+    {
+      "case_id": "R14c",
+      "requirement": "14. repo allowlist/idempotency protections work",
+      "category": "safety",
+      "is_violation_check": false,
+      "passed": true,
+      "detail": "status=IssueCreationStatus.CREATED, create_calls=1"
+    },
+    {
+      "case_id": "R15a",
+      "requirement": "15. empty/weak retrieval does not fabricate evidence",
+      "category": "safety",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "flagged=True, evidence_count=0 (expected 0)"
+    },
+    {
+      "case_id": "R15b",
+      "requirement": "15. empty/weak retrieval does not fabricate evidence",
+      "category": "safety",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "evidence_count=1 (expected 1)"
+    },
+    {
+      "case_id": "R16a",
+      "requirement": "16. unsupported model claims are rejected by deterministic validation",
+      "category": "grounding",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "unknown context document_id was flagged"
+    },
+    {
+      "case_id": "R16b",
+      "requirement": "16. unsupported model claims are rejected by deterministic validation",
+      "category": "grounding",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "mismatched document/section pairing was flagged"
+    },
+    {
+      "case_id": "R17a",
+      "requirement": "17. product areas are not accepted as customer segments without metadata support",
+      "category": "grounding",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "issue=affected_segments value 'mobile' is a product_area in this dataset, not a customer segment, and is not supported by any cited feedback's segment metadata."
+    },
+    {
+      "case_id": "R17b",
+      "requirement": "17. product areas are not accepted as customer segments without metadata support",
+      "category": "grounding",
+      "is_violation_check": true,
+      "passed": true,
+      "detail": "unsupported segments caught={'mobile', 'reporting'}"
+    }
+  ],
+  "constraints": {
+    "live_gemini_calls_made": 0,
+    "live_github_mutations_made": 0,
+    "network_dependency": false
+  }
+}

@@ -400,6 +400,27 @@ def test_real_client_empty_output_raises_and_traces_failure(monkeypatch, tmp_pat
     assert "another-secret-key" not in log_path.read_text(encoding="utf-8")
 
 
+def test_real_client_honors_pfa_gemini_model_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("GEMINI_API_KEY", "another-secret-key")
+    monkeypatch.setenv("PFA_GEMINI_MODEL", "gemini-3.5-flash-lite")
+
+    payload = json.dumps({"opportunities": _three_opportunities()})
+    interactions = _FakeInteractions(output_text=payload, usage=None)
+    _install_fake_genai(monkeypatch, interactions)
+
+    log_path = tmp_path / "model-calls.jsonl"
+    client = GeminiAnalystClient(log_path=log_path)
+
+    client.generate_structured(
+        prompt="analyze this", response_schema=AnalystOutput.model_json_schema(), cache_key="ck789"
+    )
+
+    assert interactions.create_calls[0]["model"] == "gemini-3.5-flash-lite"
+
+    record = json.loads(log_path.read_text(encoding="utf-8").strip().splitlines()[0])
+    assert record["model"] == "gemini-3.5-flash-lite"
+
+
 def test_default_client_construction_does_not_touch_env_or_network(monkeypatch, tmp_path):
     # Constructing GeminiAnalystClient (e.g. run_analyst's default) must be
     # cheap and side-effect free; only generate_structured may reach for the

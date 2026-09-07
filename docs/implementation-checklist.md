@@ -1,6 +1,10 @@
-# Product Feedback Agent ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â Implementation Checklist
+# Product Feedback Agent — Implementation Checklist
 
-Last updated: 2026-09-02
+Last updated: 2026-09-07
+
+(Note: this file was previously saved with a mojibake-corrupted title/arrow
+characters from an earlier encoding issue; this update rewrites it cleanly
+in UTF-8 without changing any decision history recorded elsewhere.)
 
 ## Project Foundation
 
@@ -20,7 +24,7 @@ Last updated: 2026-09-02
 - [x] Rename project to Product Feedback Agent
 - [x] Preserve human roadmap-decision boundary
 - [x] Add Evidence-Backed Opportunity Tree concept
-- [x] Lock bounded analyst ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ validator ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ critic ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ optional revision architecture
+- [x] Lock bounded analyst → validator → critic → optional revision architecture
 
 ## Runtime Model
 
@@ -32,6 +36,7 @@ Last updated: 2026-09-02
 - [x] Set maximum passing run to 2 Gemini requests
 - [x] Set maximum revision run to 3 Gemini requests
 - [x] Set minimum sequential spacing to 14 seconds
+- [x] Make the runtime model configurable (`PFA_GEMINI_MODEL`), default unchanged
 
 ## Python Foundation
 
@@ -87,84 +92,103 @@ Last updated: 2026-09-02
 
 - [x] Implement `prepare_analysis_context`
 - [x] Implement `search_feedback`
-- [ ] Implement `create_opportunity_issue`
+- [x] Implement `create_opportunity_issue`
 - [x] Validate MCP tools with Inspector
 - [ ] Validate MCP server with Claude Code
 - [ ] Save known-good context-packet fixtures
 
 ## Analyst and Opportunity Model
 
-- [ ] Define opportunity-card schema
-- [ ] Add Evidence-Backed Opportunity Tree structure
+- [x] Define opportunity-card schema
+- [x] Add Evidence-Backed Opportunity Tree structure
 - [x] Write Gemini analyst prompt
 - [x] Produce exactly 3 opportunity candidates
-- [ ] Distinguish requested solutions from underlying needs
-- [ ] Require evidence citations
-- [ ] Add clarification-question logic
+- [x] Distinguish requested solutions from underlying needs
+- [x] Require evidence citations
+- [x] Add clarification-question logic (`discovery_questions`)
 
 ## Validation and Scoring
 
-- [ ] Validate opportunity schema deterministically
-- [ ] Reject nonexistent feedback IDs
-- [ ] Verify exact quotations
-- [ ] Recompute evidence counts locally
-- [ ] Implement transparent opportunity scoring
-- [ ] Keep roadmap coverage separate from score
+- [x] Validate opportunity schema deterministically
+- [x] Reject nonexistent feedback IDs
+- [x] Verify exact quotations
+- [x] Recompute evidence counts locally
+- [x] Implement transparent opportunity scoring
+- [x] Keep roadmap coverage separate from score
+- [x] Reject duplicate opportunity IDs (Stage 16)
 
 ## Critic Workflow
 
-- [ ] Write Gemini critic prompt
-- [ ] Validate evidence support
-- [ ] Detect duplicate opportunities
-- [ ] Check contradictory evidence
-- [ ] Check unsupported segment claims
-- [ ] Check roadmap/context citations
-- [ ] Implement conditional single revision
-- [ ] Demonstrate one seeded revision case
+- [x] Write Gemini critic prompt
+- [x] Validate evidence support
+- [x] Detect duplicate opportunities
+- [x] Check contradictory evidence
+- [x] Check unsupported segment claims
+- [x] Check roadmap/context citations
+- [x] Implement conditional single revision
+- [x] Demonstrate one seeded revision case
+- [x] Complete controlled live end-to-end validation (analyst -> critic -> revision), 0 remaining deterministic issues
 
 ## n8n
 
-- [ ] Build intake form
-- [ ] Connect Python ingestion
-- [ ] Call one batched analysis-context operation
+- [x] Build intake form
+- [x] Connect Python ingestion
+- [x] Call one batched analysis-context operation
 - [x] Add Gemini analyst
-- [ ] Add deterministic validator
-- [ ] Add Gemini critic
-- [ ] Add conditional revision
-- [ ] Display structured results
-- [ ] Add human approval
-- [ ] Export final workflow JSON
+- [x] Add deterministic validator
+- [x] Add Gemini critic
+- [x] Add conditional revision
+- [x] Display structured results
+- [x] Add human approval
+- [x] Export final workflow JSON
+- [x] Live-validate the full workflow against a real n8n instance (see
+      `docs/n8n-setup.md` and `docs/results-log.md`, "Live Stage 15 Success")
+
+Note: ingestion/analysis-context/analyst/validator/critic/revision are not
+separate n8n nodes -- per the task instructions ("prefer invoking reusable
+application/MCP/API boundaries rather than copying Python business logic
+into n8n"), the workflow's "Run Analysis (HTTP)" node calls the small local
+HTTP service (`src/product_feedback_agent/api.py`), which delegates
+directly to the single reusable Stage 13 `product_feedback_agent.orchestrator.run_analysis`,
+which performs all of them internally, unmodified.
 
 ## GitHub REST Action
 
-- [ ] Implement dry-run opportunity issue creation
-- [ ] Require explicit approval
-- [ ] Restrict to allow-listed demo repository
-- [ ] Add duplicate-action prevention
-- [ ] Create one approved real GitHub issue
-- [ ] Demonstrate that an unapproved action is blocked
+- [x] Implement dry-run opportunity issue creation
+- [x] Require explicit approval
+- [x] Restrict to allow-listed demo repository
+- [x] Add duplicate-action prevention
+- [x] Create one approved real GitHub issue (`datascout0/product-feedback-agent`
+      issue #1, "[Opportunity] Search Result Filtering Friction" -- see
+      `docs/results-log.md`, "Live Stage 15 Success")
+- [x] Demonstrate that an unapproved action is blocked
 
 ## Evaluation
 
-- [ ] Create labelled feedback gold set
-- [ ] Define expected opportunity themes
-- [ ] Create retrieval evaluation queries
-- [ ] Measure Recall@5
-- [ ] Measure citation correctness
-- [ ] Measure exact-quote correctness
-- [ ] Record unsupported claims
-- [ ] Test prompt injection
-- [ ] Test empty retrieval behavior
-- [ ] Test action safety
-- [ ] Record latency and Gemini request counts
-- [ ] Run secondary-domain dataset
+- [x] Create a deterministic evaluation suite (`eval/`) covering the 17
+      Stage 16 requirements (grounding, scoring, critic/budget, safety)
+- [x] Measure citation correctness (deterministic, offline)
+- [x] Measure exact-quote correctness (deterministic, offline)
+- [x] Record unsupported claims (deterministic validation issues)
+- [x] Test prompt-injection-like feedback is treated as data, not instruction
+- [x] Test empty/weak retrieval behavior (no fabricated evidence)
+- [x] Test action safety (approval, allow-list, idempotency)
+- [x] Record measured Gemini request counts (2 pass / 3 revise, never 4)
+- [x] Run a secondary-domain dataset through the unmodified pipeline (Stage 17)
+- [ ] Retrieval Recall@k over a larger labelled gold set (out of scope for
+      this offline, deterministic evaluation suite -- would require a much
+      larger hand-labelled dataset than this MVP's samples)
 
 ## Portfolio Assets
 
-- [ ] Complete README
-- [ ] Complete architecture documentation
-- [ ] Complete evaluation documentation
-- [ ] Capture screenshots
-- [ ] Record 60ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“90 second demo
-- [ ] Create evidence-based CV bullets
-- [ ] Document limitations
+- [x] Complete README
+- [x] Complete architecture documentation (`docs/architecture.md`)
+- [x] Complete evaluation documentation (`eval/evaluation_report.md`,
+      `docs/results-log.md`)
+- [x] Document the screenshot/evidence plan (`docs/screenshots.md`)
+- [x] Write a concise demo script (`docs/demo-script.md`)
+- [x] Create evidence-based CV/portfolio bullets (`docs/portfolio-bullets.md`)
+- [x] Document limitations (README + `docs/architecture.md`)
+- [ ] Capture the actual screenshots listed in `docs/screenshots.md` (human
+      action against the live n8n/GitHub UI, not something Claude Code can
+      capture itself)

@@ -1,0 +1,9 @@
+feedback_id,text,source,product_area,segment,date,customer_id,rating,metadata
+ob_001,New workspace setup requires our IT team to manually configure SSO before any teammate can log in.,customer_interview,sso,enterprise,2026-07-02,CUST-500,2,
+ob_002,Configuring SSO for our new account took two weeks of back-and-forth with support.,support_ticket,sso,enterprise,2026-07-09,CUST-501,2,
+ob_003,The onboarding checklist never tells us when a step is actually complete so we redo steps we already finished.,in_app_survey,onboarding,smb,2026-07-05,CUST-502,3,
+ob_004,The onboarding checklist step for connecting our billing system does not say what connected actually looks like.,in_app_survey,onboarding,smb,2026-07-11,CUST-503,3,
+ob_005,We had to contact support three separate times just to get our first workspace configured correctly.,support_ticket,workflow,startup,2026-07-06,CUST-504,2,
+ob_006,Nobody on our team knew which onboarding step was blocking the rest of the workflow.,customer_interview,workflow,startup,2026-07-14,CUST-505,3,
+ob_007,Our support ticket about a broken SSO redirect got closed without being resolved so we had to reopen it twice.,support_ticket,sso,enterprise,2026-07-15,CUST-506,1,
+ob_008,Task deadline notifications during onboarding only arrive after the deadline has already passed.,email_digest,notifications,smb,2026-07-16,CUST-507,3,
