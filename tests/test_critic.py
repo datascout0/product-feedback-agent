@@ -266,6 +266,43 @@ def test_prompt_states_critic_cannot_take_autonomous_action(packet, analyst_outp
     assert "GitHub issue" in prompt
 
 
+def test_prompt_states_revise_requires_non_empty_required_revisions(
+    packet, analyst_output, validation_result
+):
+    # Regression for the live Group 1 smoke failure: Gemini returned
+    # status="revise" with required_revisions=[], which Pydantic correctly
+    # rejected. The prompt must explicitly instruct the model never to do
+    # this rather than relying on schema validation alone.
+    prompt = build_critic_prompt(packet, analyst_output, validation_result)
+    assert 'If status="revise", required_revisions MUST contain at least one concrete,' in prompt
+    assert "actionable revision instruction" in prompt
+
+
+def test_prompt_explicitly_prohibits_revise_with_empty_required_revisions(
+    packet, analyst_output, validation_result
+):
+    prompt = build_critic_prompt(packet, analyst_output, validation_result)
+    assert 'NEVER return status="revise" with an empty required_revisions list' in prompt
+
+
+def test_prompt_requires_deterministic_findings_to_produce_revise_and_revisions(
+    packet, analyst_output, validation_result
+):
+    prompt = build_critic_prompt(packet, analyst_output, validation_result)
+    assert "for example an unsupported affected_segments" in prompt
+    assert "an invalid feedback/context ID, or a non-exact quotation" in prompt
+
+
+def test_prompt_requires_every_issue_to_have_a_matching_required_revision(
+    packet, analyst_output, validation_result
+):
+    prompt = build_critic_prompt(packet, analyst_output, validation_result)
+    assert (
+        "Every issue you list in `issues` that requires changing the analyst output"
+        in prompt
+    )
+
+
 # ---------------------------------------------------------------------------
 # run_critic request boundary
 # ---------------------------------------------------------------------------

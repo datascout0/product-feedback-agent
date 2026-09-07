@@ -694,3 +694,58 @@ Breakdown:
 - No network or Gemini requests were made
 - Confirmed via test assertions: critic-pass runs make exactly 2 model
   requests; critic-revise runs make exactly 3; no execution path exceeds 3
+
+---
+
+## 2026-09-07 — Live Group 1 Smoke: Critic Contract Failure and Fix
+
+### Observed live result
+
+A real `run_pipeline(packet)` smoke run reached the analyst request and the
+critic request. The critic (real Gemini `gemini-3.7-flash` call) returned
+`status="revise"` with `required_revisions=[]`.
+
+`CriticOutput`'s existing Pydantic model-validator (`status="revise"`
+requires at least one `required_revisions` entry) correctly rejected this
+output, so `run_critic` raised `CriticError`. The revision request was
+never made. No successful full live pipeline run (analyst -> critic ->
+optional revision) is claimed from this smoke test.
+
+Token/request counts for this smoke run were not read from
+`logs/model-calls.jsonl` and are therefore not recorded here.
+
+### Fix
+
+Strengthened `_CRITIC_INSTRUCTIONS` in
+`src/product_feedback_agent/critic.py` to explicitly state the
+`status="revise"` => non-empty `required_revisions` rule, prohibit an empty
+`required_revisions` list under `status="revise"`, require every listed
+`issues` entry to have a matching `required_revisions` entry, and require
+deterministic validation findings (unsupported segments, invalid IDs,
+non-exact quotations) that need analyst correction to produce
+`status="revise"` plus actionable revisions. The `CriticOutput` schema and
+its existing validator were not weakened. No retries were added and the
+2/3 Gemini request budget in `pipeline.py` is unchanged.
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**204 / 204 tests passed**
+
+Breakdown:
+
+- 4 new critic prompt regression tests passed
+- 200 previously-passing tests remained passing
+- 0 failures, 0 errors
+- No network or Gemini requests were made
+
+### Status
+
+Group 1 has not yet completed a successful full live pipeline run. One
+controlled live retry is recommended to confirm the strengthened critic
+prompt produces schema-valid output before any Group 2 work begins.

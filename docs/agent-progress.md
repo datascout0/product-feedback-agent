@@ -196,6 +196,69 @@ critic/revision output actually validates against the `CriticOutput`/
 
 ---
 
+## Stage 12b — Live smoke finding + critic contract fix
+
+**Status:** Complete (fix only; no successful full live pipeline run claimed)
+
+### Live finding
+
+A real `run_pipeline(packet)` smoke run made an analyst request and a critic
+request. The critic (Gemini) returned `status="revise"` with
+`required_revisions=[]`. `CriticOutput`'s existing model-validator (added in
+Stage 11) correctly rejected this as invalid, so `run_critic` raised
+`CriticError` and the run stopped before the revision request was made. No
+required revisions were fabricated in Python and the run was not silently
+converted to a pass -- this is the correct, intended behavior of the
+existing Pydantic invariant.
+
+### Fix
+
+Only `_CRITIC_INSTRUCTIONS` in `src/product_feedback_agent/critic.py` was
+changed -- the `CriticOutput` schema and its `revise => non-empty
+required_revisions` validator are unchanged. The prompt now explicitly
+states, as separate rules: `pass` only when nothing requires changes;
+`revise` whenever anything requires changes, including deterministic
+validation findings (unsupported segments, invalid IDs, non-exact
+quotations) that need an analyst-side correction; every listed `issues`
+entry must have a matching `required_revisions` entry; and status="revise"
+with an empty `required_revisions` is explicitly prohibited and described as
+invalid, with instructions to return "pass" instead if no concrete revision
+can be named.
+
+No retries were added, the 2/3 Gemini request budget in `pipeline.py` is
+unchanged, and no fake revisions are synthesized in Python.
+
+### Tests
+
+Added to `tests/test_critic.py`: prompt contains the explicit `revise =>
+non-empty required_revisions` rule, the prompt explicitly prohibits
+`revise` + empty `required_revisions`, the prompt requires deterministic
+findings to drive `revise` + revisions, and the prompt requires every issue
+to have a matching required-revision entry. The existing
+`test_revise_status_without_required_revisions_is_rejected` and
+`test_run_critic_raises_on_invalid_client_output` tests continue to prove
+the schema-level rejection is unchanged; `test_revise_status_with_
+required_revisions_is_valid` and `test_run_critic_returns_revise_output`
+continue to prove a valid revise response still passes. All
+`tests/test_pipeline.py` request-count tests (2 requests on pass, 3 on
+revise, no path exceeds 3) pass unchanged, since `pipeline.py` was not
+modified.
+
+### Test result
+
+Full suite: **204 / 204 passed** (200 baseline + 4 new prompt regression
+tests).
+
+### Unresolved issues / human validation needed
+
+No successful full live `run_pipeline` run has been completed yet. One
+controlled live retry (a single real smoke run, same budget: analyst +
+critic, plus revision only if triggered) is recommended to confirm the
+strengthened prompt produces a schema-valid `revise` response before
+Group 2 work begins.
+
+---
+
 ## Next step (Group 2)
 
 Group 1 (Stages 10-12) is complete. Group 2 work -- explicitly out of scope
