@@ -341,12 +341,50 @@ any Group 2 work begins.
 
 ---
 
+## Stage 12d — Live validation: successful full pipeline run
+
+**Status:** Complete. Group 1 (Stages 10-12) is now live-validated.
+
+### Result
+
+The single controlled live retry recommended in Stage 12c was run. A real
+`run_pipeline(packet)` call completed the full bounded flow successfully:
+analyst (request 1) -> deterministic validation -> critic (request 2,
+schema-valid `status="revise"` this time, satisfying the Stage 12c wire
+schema) -> exactly one revision (request 3) -> local re-validation of the
+revised output, with **0** remaining deterministic validation issues.
+
+`model_request_count = 3`, `revised = True`, no fourth model request
+occurred. Full model-call traces, per-call token/duration figures, and the
+measured totals (3 requests, 135.485s total call duration, 24,959 total
+reported tokens) are recorded in `docs/results-log.md` under "2026-09-07 —
+Live Group 1 Smoke: Successful Full Pipeline Run". The raw run output was
+saved to the gitignored local artifact `data/local/group1-live-smoke.json`.
+
+This is a live-only finding: no implementation code was changed for this
+entry. The two prior live failures (Stage 12b, Stage 12c) that motivated
+the prompt- and schema-level critic fixes remain recorded above and are not
+erased -- this run confirms those fixes hold under a real Gemini call.
+
+### Tests
+
+No test or implementation changes accompany this entry. The existing
+213/213 offline suite is unaffected; this was a live smoke run only.
+
+### Unresolved issues / human validation needed
+
+None for Group 1. Stages 10-12 are complete and live-validated. Group 2 has
+not been started.
+
+---
+
 ## Next step (Group 2)
 
-Group 1 (Stages 10-12) is complete. Group 2 work -- explicitly out of scope
-for this session -- starts with: end-to-end n8n integration wiring analyst
--> validator -> critic -> revision -> human approval, GitHub issue creation
-(dry-run first, then one approved real issue), the evaluation suite, and
-secondary-domain reuse. See the "n8n", "GitHub REST Action", and
-"Evaluation" sections of `docs/implementation-checklist.md` for the
-itemized remaining work.
+Group 1 (Stages 10-12) is complete and **live-validated** (see Stage 12d).
+Group 2 work -- explicitly out of scope for this session -- starts with:
+end-to-end n8n integration wiring analyst -> validator -> critic ->
+revision -> human approval, GitHub issue creation (dry-run first, then one
+approved real issue), the evaluation suite, and secondary-domain reuse. See
+the "n8n", "GitHub REST Action", and "Evaluation" sections of
+`docs/implementation-checklist.md` for the itemized remaining work. Group 2
+has not been started as part of this session.

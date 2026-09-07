@@ -121,6 +121,7 @@ Last updated: 2026-09-02
 - [x] Check roadmap/context citations
 - [x] Implement conditional single revision
 - [x] Demonstrate one seeded revision case
+- [x] Complete controlled live end-to-end validation (analyst -> critic -> revision), 0 remaining deterministic issues
 
 ## n8n
 

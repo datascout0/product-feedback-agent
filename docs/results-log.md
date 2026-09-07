@@ -830,3 +830,79 @@ is a structural, not just textual, guarantee against this specific failure
 shape recurring. One controlled live retry is recommended next, and only
 one -- per repository instruction, no further retries beyond that single
 attempt should be made without human review of the result.
+
+---
+
+## 2026-09-07 — Live Group 1 Smoke: Successful Full Pipeline Run
+
+### Observed live result
+
+The controlled live retry recommended above was run. A real
+`run_pipeline(packet)` call completed successfully end-to-end for the first
+time: analyst request -> deterministic validation -> critic request ->
+critic `status="revise"` (schema-valid, with non-empty `required_revisions`)
+-> exactly one revision request -> local re-validation of the revised
+output.
+
+Result:
+
+- `model_request_count = 3`
+- `revised = True`
+- critic status = `revise`
+- final remaining deterministic validation issues = **0**
+- local ignored artifact saved: `data/local/group1-live-smoke.json`
+
+### Model call traces
+
+Analyst:
+
+- model: `gemini-3.7-flash`
+- duration: 80.563 seconds
+- total tokens: 7,907
+- success: true
+
+Critic:
+
+- model: `gemini-3.7-flash`
+- duration: 44.719 seconds
+- total tokens: 7,457
+- success: true
+
+Revision:
+
+- model: `gemini-3.7-flash`
+- duration: 10.203 seconds
+- total tokens: 9,595
+- success: true
+
+### Measured totals
+
+- model requests: 3
+- model-call duration: 135.485 seconds
+- total reported tokens: 24,959
+
+### Interpretation
+
+- The analyst produced 3 opportunities.
+- Deterministic validation ran against the original draft.
+- The critic correctly returned `revise` and satisfied the schema-level
+  `revise` => non-empty `required_revisions` contract added in the
+  2026-09-07 Stage 12c fix (no `CriticError` this time).
+- Exactly one revision request was made; the critic was not called again.
+- The revised output was deterministically re-validated against the
+  original packet.
+- Final validation issues after revision: 0.
+- No fourth model request occurred; the 3-request bound held.
+
+This is the first successful full live Group 1 pipeline run. The two prior
+live attempts recorded above (2026-09-07 "Critic Contract Failure and Fix"
+and "Second Critic Contract Failure and Schema-Level Fix") are preserved
+as-is in this log as reliability findings that motivated the prompt- and
+schema-level fixes that made this run succeed -- they are not erased or
+superseded, only resolved.
+
+### Status
+
+Group 1 (Stages 10-12) is now complete and live-validated. This closes the
+"one controlled live retry" recommended in the prior entry. No further live
+retries were performed. Group 2 work has not been started.
