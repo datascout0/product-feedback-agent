@@ -2,35 +2,73 @@
 
 This identifies which parts of the demo are worth a screenshot for a
 portfolio/demo, and which are already better evidenced by committed,
-source-controlled test/evaluation output. No screenshot is listed here that
-hasn't actually been produced by a real run described in
-`docs/results-log.md` -- this file plans *which* captures matter, it does
-not claim they already exist as image files in this repository.
+source-controlled test/evaluation output. Every image embedded below is a
+real screenshot committed under `docs/screenshots/` from the actual live
+n8n run recorded in `docs/results-log.md` ("Live Stage 15 Success") -- none
+of it is a mockup or a fabricated rendering.
 
-## Worth a screenshot (UI-only evidence; no test output shows this)
+## Captured
 
-1. **n8n reject path.** The "Human Review & Approval" form submitted with
-   `Decision = reject`, and the resulting run ending at **No Action
-   (Rejected)** in the n8n execution view. This is the clearest visual
-   proof of the human-approval boundary actually working live.
-2. **n8n approve path.** The same form submitted with `Decision = approve`
-   plus a real `opportunity_id`/`repo`, and the resulting **Approved
-   Summary** node output (or the raw `POST /github/issues` response)
-   showing `status: "created"` and a real `issue_url`.
-3. **The human approval form itself**, mid-fill, showing the rendered
-   opportunity summary (`formDescription`) alongside the `Decision` /
-   `opportunity_id` / `repo` fields -- this is the one moment a human
-   actually exercises judgment in the whole workflow, and is worth showing
-   as a UI, not just describing.
-4. **The real created GitHub issue** (`datascout0/product-feedback-agent`
-   issue #1, "[Opportunity] Search Result Filtering Friction") as rendered
-   by GitHub's own UI -- title, labels, and the evidence-backed body
-   (quotes, `feedback_id`s, score breakdown, idempotency marker comment).
+### 1. Reject path makes zero GitHub calls
 
-These four are already live-confirmed per `docs/results-log.md` ("Live
-Stage 15 Success") -- capturing them is a human action against the live
-n8n/GitHub UI in this session's environment, not something this repository
-or Claude Code can produce as a file.
+![n8n reject path: full workflow graph, the approve branch (Build GitHub Issue Request onward) unexecuted, only No Action (Rejected) reached](screenshots/n8n-reject-path.png)
+
+*The executed run graph for a `Decision = reject` submission. Every node up
+through `Approval Gate` completed (green check), the gate's `false` branch
+reached `No Action (Rejected)`, and the entire approve-only branch --
+`Build GitHub Issue Request`, `Create GitHub Issue (Approved)`, `Parse
+GitHub Action Result`, `Approved Summary` -- never executed at all. This is
+the visual confirmation that a reject decision cannot reach a GitHub
+mutation, matching the trace-log evidence (no `github_action` log entry for
+this run) recorded in `docs/results-log.md`.*
+
+![No Action (Rejected) node detail: input data showing Decision=reject, opportunity_id=OPP-1, repo=feedback-agent](screenshots/n8n-reject-node-detail.png)
+
+*The `No Action (Rejected)` node's own input data, confirming exactly what
+reached the dead end: `Decision: reject`, plus the submitted
+`opportunity_id`/`repo`/`submittedAt`. The Approval Gate routes on
+`Decision` alone (case-sensitive `"approve"` required) -- a non-approve
+decision dead-ends regardless of what `opportunity_id`/`repo` were typed,
+which is why this test run's values differ from the real approved run's.*
+
+### 2. Approve path reaches the GitHub action and Approved Summary
+
+![n8n approve path: full workflow graph, every node through Build GitHub Issue Request, Create GitHub Issue (Approved), Parse GitHub Action Result, and Approved Summary executed](screenshots/n8n-approve-path.png)
+
+*The executed run graph for a `Decision = approve` submission. Every node
+is green/checked, including the approve-only branch: `Build GitHub Issue
+Request` -> `Create GitHub Issue (Approved)` (the live `POST
+/github/issues` call) -> `Parse GitHub Action Result` -> `Approved Summary`.
+This is the run that created the real GitHub issue documented in
+`docs/results-log.md` ("Live Stage 15 Success") and
+`docs/agent-progress.md`: `datascout0/product-feedback-agent` issue #1,
+"[Opportunity] Search Result Filtering Friction".*
+
+### 3. Human-in-the-loop form evidence
+
+![n8n Form node post-submission confirmation: "Form Submitted -- Your response has been recorded"](screenshots/form-submitted.png)
+
+*The n8n Form node's confirmation screen after a human submits their
+review decision. This is generic (it doesn't show which decision was
+submitted, or the rendered opportunity summary that preceded it), but it is
+direct evidence that the human-review step in this workflow is a real,
+submittable form a person interacts with -- not a placeholder or a
+simulated step.*
+
+## Deliberately not captured
+
+- **The real created GitHub issue.** Issue #1
+  (`datascout0/product-feedback-agent`, "[Opportunity] Search Result
+  Filtering Friction") is documented as text in `docs/results-log.md` and
+  `docs/agent-progress.md`, corroborated by the `find`/`create` entries in
+  `logs/github-actions.jsonl`. No screenshot of it is included here --
+  adding one now, after the fact, from memory or a mockup would not be
+  genuine evidence, so it is intentionally left as a documented fact rather
+  than fabricated as an image.
+- **The human approval form mid-fill** (showing the rendered opportunity
+  summary alongside the `Decision`/`opportunity_id`/`repo` fields before
+  submission). Only the post-submission confirmation screen was captured;
+  the mid-fill view was not, and is not fabricated here either.
 
 ## Not worth a screenshot (better shown as committed output)
 

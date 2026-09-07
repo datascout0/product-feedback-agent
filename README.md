@@ -379,6 +379,22 @@ evidence/citations -> deterministic scores -> critic/revision -> human
 review -> reject safety -> approved GitHub issue -> evaluation evidence ->
 secondary-domain reuse -> limitations).
 
+**Live screenshots** (from the actual run described in
+`docs/results-log.md`, "Live Stage 15 Success" -- full set and captions in
+[docs/screenshots.md](docs/screenshots.md)):
+
+| Reject path -- zero GitHub calls | Approve path -- reaches the GitHub action |
+|---|---|
+| ![n8n reject path](docs/screenshots/n8n-reject-path.png) | ![n8n approve path](docs/screenshots/n8n-approve-path.png) |
+
+In the reject-path run, the approve-only branch (`Build GitHub Issue
+Request` onward) never executes; only `No Action (Rejected)` does. In the
+approve-path run, every node through `Create GitHub Issue (Approved)` and
+`Approved Summary` completed -- this is the run that created the real
+issue documented above (`datascout0/product-feedback-agent` issue #1,
+"[Opportunity] Search Result Filtering Friction"). No screenshot of the
+GitHub issue itself is included -- see `docs/screenshots.md` for why.
+
 ## Repository Layout
 
 ```

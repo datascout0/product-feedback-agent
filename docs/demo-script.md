@@ -70,12 +70,28 @@ Open **Human Review & Approval**. Emphasize: nothing external has happened
 yet. `OrchestrationResult` has no "approved" field and no issue URL --
 there is no code path that can mark this as decided without a human.
 
+![n8n Form node post-submission confirmation](screenshots/form-submitted.png)
+
+*The confirmation screen a human sees after submitting their review
+decision -- direct evidence this step is a real, submittable form, not a
+simulated one.*
+
 ## 9. Reject safety **(live)**
 
 Submit `Decision = reject`. Show the run dead-ending at **No Action
 (Rejected)** with zero GitHub calls -- live-confirmed: no
 `github_action` trace entry appears for this submission (see
 `docs/results-log.md`).
+
+![n8n reject path: approve-only branch unexecuted](screenshots/n8n-reject-path.png)
+
+*Every node up through `Approval Gate` completed; the entire
+GitHub-issue branch (`Build GitHub Issue Request` onward) never ran.*
+
+![No Action (Rejected) node input: Decision=reject](screenshots/n8n-reject-node-detail.png)
+
+*The rejected node's own input data, confirming `Decision: reject` is what
+reached it.*
 
 ## 10. Approved GitHub issue **(live)**
 
@@ -86,6 +102,13 @@ Filtering Friction" -- created via `POST /github/issues`, gated by the
 allow-list/approval/idempotency checks in `github_action.py`. Mention:
 re-submitting the same approval again would be refused as a duplicate, not
 filed twice.
+
+![n8n approve path: every node through Approved Summary executed](screenshots/n8n-approve-path.png)
+
+*The run that created issue #1: every node, including `Create GitHub Issue
+(Approved)` and `Approved Summary`, completed. See `docs/screenshots.md`
+for why the issue itself isn't screenshotted (it's already documented as
+text, corroborated by the real GitHub API trace log).*
 
 ## 11. Evaluation evidence
 
