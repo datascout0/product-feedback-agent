@@ -346,6 +346,46 @@ def test_segment_supported_only_by_an_invalid_feedback_id_is_still_flagged():
 
 
 # ---------------------------------------------------------------------------
+# Opportunity ID uniqueness
+# ---------------------------------------------------------------------------
+
+
+def test_distinct_opportunity_ids_are_not_flagged():
+    output = AnalystOutput(
+        opportunities=[
+            _draft(opportunity_id="opp_1"),
+            _draft(opportunity_id="opp_2"),
+            _draft(opportunity_id="opp_3"),
+        ]
+    )
+    result = validate_analyst_output(output, _packet())
+    assert ValidationIssueType.DUPLICATE_OPPORTUNITY_ID not in _issue_types(result, "opp_1")
+    assert ValidationIssueType.DUPLICATE_OPPORTUNITY_ID not in _issue_types(result, "opp_2")
+
+
+def test_duplicate_opportunity_id_is_flagged_on_every_occurrence():
+    output = AnalystOutput(
+        opportunities=[
+            _draft(opportunity_id="opp_1"),
+            _draft(opportunity_id="opp_1"),
+            _draft(opportunity_id="opp_3"),
+        ]
+    )
+    result = validate_analyst_output(output, _packet())
+
+    duplicate_issues = [
+        issue for issue in result.issues if issue.issue_type == ValidationIssueType.DUPLICATE_OPPORTUNITY_ID
+    ]
+    assert len(duplicate_issues) == 2
+    assert all(issue.opportunity_id == "opp_1" for issue in duplicate_issues)
+    assert ValidationIssueType.DUPLICATE_OPPORTUNITY_ID not in _issue_types(result, "opp_3")
+
+    validated_opp1_instances = [o for o in result.opportunities if o.opportunity_id == "opp_1"]
+    assert len(validated_opp1_instances) == 2
+    assert all(not v.is_valid for v in validated_opp1_instances)
+
+
+# ---------------------------------------------------------------------------
 # Scoring formula
 # ---------------------------------------------------------------------------
 

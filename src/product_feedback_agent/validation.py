@@ -15,6 +15,11 @@ Design notes:
   Gemini response used "mobile" and "reporting" -- product_area values -- as
   affected_segments. This module's segment check exists specifically to
   catch that class of error.
+- opportunity_id uniqueness across the three opportunities in one
+  AnalystOutput is also checked here (DUPLICATE_OPPORTUNITY_ID), added for
+  the Stage 16 deterministic evaluation suite (see eval/cases.py). This is
+  additive: it does not change scoring, the critic contract, or the request
+  budget.
 """
 
 from __future__ import annotations
@@ -43,6 +48,7 @@ class ValidationIssueType(str, Enum):
     UNKNOWN_CONTEXT_SECTION = "unknown_context_section"
     CONTEXT_PAIRING_MISMATCH = "context_pairing_mismatch"
     UNSUPPORTED_SEGMENT = "unsupported_segment"
+    DUPLICATE_OPPORTUNITY_ID = "duplicate_opportunity_id"
 
 
 class ValidationIssue(BaseModel):
@@ -137,12 +143,25 @@ def validate_analyst_output(
         (evidence.document_id, evidence.section_id) for evidence in packet.retrieved_context
     }
     product_area_values = set(packet.dataset_statistics.counts_by_product_area)
+    duplicate_opportunity_ids = _find_duplicate_ids(output)
 
     validated_opportunities: list[ValidatedOpportunity] = []
     all_issues: list[ValidationIssue] = []
 
     for opportunity in output.opportunities:
         issues: list[ValidationIssue] = []
+
+        if opportunity.opportunity_id in duplicate_opportunity_ids:
+            issues.append(
+                ValidationIssue(
+                    opportunity_id=opportunity.opportunity_id,
+                    issue_type=ValidationIssueType.DUPLICATE_OPPORTUNITY_ID,
+                    message=(
+                        f"opportunity_id '{opportunity.opportunity_id}' is used by more than "
+                        "one opportunity in this AnalystOutput."
+                    ),
+                )
+            )
 
         valid_feedback_ids = _validate_feedback_ids(opportunity, feedback_by_id, issues)
         _validate_quotations(opportunity, feedback_by_id, issues)
@@ -180,6 +199,17 @@ def validate_analyst_output(
         all_issues.extend(issues)
 
     return ValidationResult(opportunities=validated_opportunities, issues=all_issues)
+
+
+def _find_duplicate_ids(output: AnalystOutput) -> set[str]:
+    """Return the set of opportunity_id values used by more than one opportunity."""
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for opportunity in output.opportunities:
+        if opportunity.opportunity_id in seen:
+            duplicates.add(opportunity.opportunity_id)
+        seen.add(opportunity.opportunity_id)
+    return duplicates
 
 
 def _index_feedback(packet: AnalysisContextPacket) -> dict[str, FeedbackEvidence]:
