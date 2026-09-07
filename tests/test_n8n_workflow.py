@@ -248,3 +248,100 @@ def test_no_hardcoded_windows_or_posix_secret_looking_path_in_new_http_nodes():
         raw = json.dumps(node)
         assert "C:\\Users" not in raw
         assert "C:/Users" not in raw
+
+
+# ---------------------------------------------------------------------------
+# Live finding (2026-09-07): "Human Review & Approval" imported with
+# Page Type = Form Ending instead of Next Form Page. The installed Form
+# node's "Form Ending" page type has no further outgoing connection slot in
+# the n8n UI, so a page type this node never displays would silently strand
+# the approval decision. Repaired by switching the node to operation="page"
+# (Next Form Page) with defineForm="json" (JSON-defined form fields) instead
+# of the UI "Using Fields Below" field builder.
+# ---------------------------------------------------------------------------
+
+
+def _human_review_node(workflow: dict) -> dict:
+    return next(n for n in workflow["nodes"] if n["name"] == "Human Review & Approval")
+
+
+def _human_review_json_fields(workflow: dict) -> list[dict]:
+    node = _human_review_node(workflow)
+    return json.loads(node["parameters"]["jsonOutput"])
+
+
+def test_human_review_node_operation_is_page_not_form_ending():
+    workflow = _load_workflow()
+    node = _human_review_node(workflow)
+    assert node["parameters"]["operation"] == "page"
+    assert node["parameters"]["operation"] != "completion"
+
+
+def test_human_review_node_defines_form_via_json():
+    workflow = _load_workflow()
+    node = _human_review_node(workflow)
+    assert node["parameters"]["defineForm"] == "json"
+    assert "jsonOutput" in node["parameters"]
+
+
+def test_human_review_json_fields_contain_a_required_decision_dropdown():
+    workflow = _load_workflow()
+    fields = _human_review_json_fields(workflow)
+    decision = next(f for f in fields if f["fieldLabel"] == "Decision")
+    assert decision["fieldType"] == "dropdown"
+    assert decision["requiredField"] is True
+    options = {v["option"] for v in decision["fieldOptions"]["values"]}
+    assert options == {"approve", "reject"}
+
+
+def test_human_review_json_fields_contain_a_required_opportunity_id_text_input():
+    workflow = _load_workflow()
+    fields = _human_review_json_fields(workflow)
+    opportunity_id = next(f for f in fields if f["fieldLabel"] == "opportunity_id")
+    assert opportunity_id["fieldType"] == "text"
+    assert opportunity_id["requiredField"] is True
+
+
+def test_human_review_json_fields_contain_a_required_repo_text_input():
+    workflow = _load_workflow()
+    fields = _human_review_json_fields(workflow)
+    repo = next(f for f in fields if f["fieldLabel"] == "repo")
+    assert repo["fieldType"] == "text"
+    assert repo["requiredField"] is True
+    assert repo["placeholder"] == "owner/repository"
+
+
+def test_human_review_json_fields_are_exactly_decision_opportunity_id_repo():
+    workflow = _load_workflow()
+    fields = _human_review_json_fields(workflow)
+    labels = [f["fieldLabel"] for f in fields]
+    assert labels == ["Decision", "opportunity_id", "repo"]
+
+
+def test_approval_gate_checks_the_exact_submitted_json_field_names():
+    workflow = _load_workflow()
+    gate = next(node for node in workflow["nodes"] if node["name"] == "Approval Gate")
+    conditions = gate["parameters"]["conditions"]["conditions"]
+    left_values = [c["leftValue"] for c in conditions]
+
+    assert "={{ $json['Decision'] }}" in left_values
+    assert "={{ $json['opportunity_id'] }}" in left_values
+    assert "={{ $json['repo'] }}" in left_values
+
+
+def test_build_github_issue_request_reads_the_exact_submitted_json_field_names():
+    workflow = _load_workflow()
+    build_node = next(
+        node for node in workflow["nodes"] if node["name"] == "Build GitHub Issue Request"
+    )
+    code = build_node["parameters"]["jsCode"]
+    assert "$json['opportunity_id']" in code
+    assert "$json['repo']" in code
+
+
+def test_human_review_node_is_not_a_form_ending_page():
+    workflow = _load_workflow()
+    node = _human_review_node(workflow)
+    assert node["parameters"]["operation"] != "completion"
+    raw = json.dumps(node["parameters"])
+    assert "Form Ending" not in raw

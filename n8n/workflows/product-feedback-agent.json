@@ -102,40 +102,13 @@
       "typeVersion": 1,
       "position": [-80, 0],
       "webhookId": "00000000-0000-4000-8000-0000000000f1",
-      "notes": "STAGE: explicit human approval boundary. This is the ONLY step that can authorize a GitHub write. Approval is never inferred -- the human must type 'approve' AND name one opportunity_id AND the target repo. Any other input (including leaving this blank/timing out) is treated as reject by the Approval Gate below.",
+      "notes": "STAGE: explicit human approval boundary. This is the ONLY step that can authorize a GitHub write. Approval is never inferred -- the human must pick 'approve' AND name one opportunity_id AND the target repo; picking 'reject' (or any other value) is treated as reject by the Approval Gate below regardless of the other two fields. Live finding (2026-09-07): this node imported with Page Type = Form Ending instead of Next Form Page, so it is now defined with operation=\"page\" and defineForm=\"json\" (the installed Form node's JSON-defined form mode) instead of the UI 'Using Fields Below' builder.",
       "parameters": {
-        "operation": "completion",
+        "operation": "page",
         "formTitle": "Review opportunities and decide",
-        "formFields": {
-          "values": [
-            {
-              "fieldLabel": "Opportunity summary",
-              "fieldType": "html",
-              "html": "={{ $json.summaryMarkdown }}"
-            },
-            {
-              "fieldLabel": "opportunity_id to act on (leave blank to reject)",
-              "fieldType": "text",
-              "requiredField": false
-            },
-            {
-              "fieldLabel": "Target GitHub repo (owner/name)",
-              "fieldType": "text",
-              "requiredField": false
-            },
-            {
-              "fieldLabel": "Decision",
-              "fieldType": "dropdown",
-              "requiredField": true,
-              "fieldOptions": {
-                "values": [
-                  { "option": "approve" },
-                  { "option": "reject" }
-                ]
-              }
-            }
-          ]
-        }
+        "formDescription": "={{ $json.summaryMarkdown }}",
+        "defineForm": "json",
+        "jsonOutput": "[\n  {\n    \"fieldLabel\": \"Decision\",\n    \"fieldType\": \"dropdown\",\n    \"fieldOptions\": {\n      \"values\": [\n        { \"option\": \"approve\" },\n        { \"option\": \"reject\" }\n      ]\n    },\n    \"requiredField\": true\n  },\n  {\n    \"fieldLabel\": \"opportunity_id\",\n    \"fieldType\": \"text\",\n    \"requiredField\": true,\n    \"placeholder\": \"Enter exactly one of the 3 opportunity_id values shown above (e.g. OPP-1)\"\n  },\n  {\n    \"fieldLabel\": \"repo\",\n    \"fieldType\": \"text\",\n    \"requiredField\": true,\n    \"placeholder\": \"owner/repository\"\n  }\n]"
       }
     },
     {
@@ -161,13 +134,13 @@
             },
             {
               "id": "opportunity-id-present",
-              "leftValue": "={{ $json['opportunity_id to act on (leave blank to reject)'] }}",
+              "leftValue": "={{ $json['opportunity_id'] }}",
               "rightValue": "",
               "operator": { "type": "string", "operation": "notEquals" }
             },
             {
               "id": "repo-present",
-              "leftValue": "={{ $json['Target GitHub repo (owner/name)'] }}",
+              "leftValue": "={{ $json['repo'] }}",
               "rightValue": "",
               "operator": { "type": "string", "operation": "notEquals" }
             }
@@ -186,7 +159,7 @@
       "notes": "Approved path only. Builds the JSON body for POST /github/issues, carrying the ORIGINAL orchestration result (not a re-derived or n8n-edited version) plus approved=true, dry_run=false, and an allow-list containing ONLY the human-supplied repo. No core GitHub logic is duplicated here -- this only shapes the request the Windows-host HTTP service (api.py) forwards, unmodified, to the existing Stage 14 create_opportunity_issue.",
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const orchestrationResult = $('Parse Orchestration Result').first().json.orchestrationResult;\nconst opportunityId = $json['opportunity_id to act on (leave blank to reject)'];\nconst repo = $json['Target GitHub repo (owner/name)'];\n\nreturn [{\n  json: {\n    result: orchestrationResult,\n    opportunity_id: opportunityId,\n    repo: repo,\n    approved: true,\n    dry_run: false,\n    allowed_repos: [repo],\n  },\n}];"
+        "jsCode": "const orchestrationResult = $('Parse Orchestration Result').first().json.orchestrationResult;\nconst opportunityId = $json['opportunity_id'];\nconst repo = $json['repo'];\n\nreturn [{\n  json: {\n    result: orchestrationResult,\n    opportunity_id: opportunityId,\n    repo: repo,\n    approved: true,\n    dry_run: false,\n    allowed_repos: [repo],\n  },\n}];"
       }
     },
     {

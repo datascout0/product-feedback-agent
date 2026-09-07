@@ -851,3 +851,102 @@ this as demo-ready:
 
 No real GitHub issue, no real Gemini call, and no live n8n execution
 occurred during this repair.
+
+## Stage 15 repair round 2 — Live validation + human approval form schema fix
+
+**Status:** In progress. JSON-level repair complete; one final live
+re-import validation still required. Group 3 has NOT been started.
+
+### Live validation results (2026-09-07)
+
+Re-testing the HTTP-repaired workflow (commit `dccfaca`) against the
+user's real self-hosted n8n Docker instance, on Windows, confirmed:
+
+1. The Product Feedback Agent HTTP API started successfully on the
+   Windows host.
+2. `GET http://localhost:8000/health` returned `status=ok`.
+3. The repaired workflow JSON imported successfully into n8n.
+4. Both former Execute Command "?" nodes are now recognized, built-in
+   `n8n-nodes-base.httpRequest` nodes -- the round-1 repair is now
+   confirmed live.
+
+### Live finding
+
+The "Human Review & Approval" node imported with **Page Type = Form
+Ending** instead of **Page Type = Next Form Page**. Manually switching it
+to Next Form Page in the n8n UI exposed the installed Form node's
+page-mode options (Define Form: "Using Fields Below" / "Using JSON", plus
+Form Elements) -- confirming the node type itself is fine, but the
+`operation` parameter value in the tracked JSON was wrong.
+
+### Repair
+
+Updated only the "Human Review & Approval" node in
+`n8n/workflows/product-feedback-agent.json`, switching it to the
+installed Form node's JSON-defined form mode so no manual reconfiguration
+is needed on import:
+
+- `operation`: `"completion"` -> `"page"`.
+- Added `defineForm: "json"` and a `jsonOutput` string (the same
+  `fieldLabel`/`fieldType`/`fieldOptions.values[].option`/`requiredField`
+  shape already used elsewhere in this workflow) defining exactly three
+  fields, in order: `Decision` (dropdown, `approve`/`reject`, required),
+  `opportunity_id` (text, required, placeholder pointing at the 3
+  opportunity IDs in the summary), `repo` (text, required, placeholder
+  `owner/repository`).
+- The opportunity summary moved from an inline `html` form field to
+  `formDescription` (`={{ $json.summaryMarkdown }}`), since the JSON field
+  list is now limited to exactly the three fields the Approval Gate reads.
+- "Approval Gate" and "Build GitHub Issue Request" were updated to read
+  the new, shorter field names (`$json['Decision']`, `$json['opportunity_id']`,
+  `$json['repo']`) instead of the old UI-builder labels. The safety gate's
+  logic is unchanged: case-sensitive `Decision == "approve"` AND non-blank
+  `opportunity_id` AND non-blank `repo`, `and`-combined, still gates the
+  only edge into the GitHub HTTP Request node.
+
+### Tests
+
+`tests/test_n8n_workflow.py` grew from 19 to 28 tests (9 new): the Human
+Review node's `operation` is `"page"` (never `"completion"`); `defineForm`
+is `"json"`; the parsed `jsonOutput` contains exactly `Decision`
+(required dropdown, options `{approve, reject}`), `opportunity_id`
+(required text), `repo` (required text, placeholder `owner/repository`),
+in that order and no others; the Approval Gate's three conditions
+reference exactly `$json['Decision']`, `$json['opportunity_id']`,
+`$json['repo']`; "Build GitHub Issue Request" reads the same two field
+names; and the node's parameters contain no literal `"Form Ending"`
+string.
+
+### Test result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result: **301 / 301 passed** (292 baseline + 9 new). 0 failures, 0
+errors. `git diff --check` reported no whitespace errors. No network,
+Gemini, GitHub, or live n8n execution anywhere in this repair -- it was
+applied statically against the JSON file based on the live finding above.
+
+### Unresolved issues / human validation needed
+
+**HUMAN CHECKPOINT REQUIRED**: this JSON-level repair has **not yet been
+re-imported into the live n8n instance**. Before treating the human
+approval step as demo-ready:
+
+1. Re-import `n8n/workflows/product-feedback-agent.json` and confirm
+   "Human Review & Approval" now shows Page Type = Next Form Page (not
+   Form Ending) with no unrecognized/misconfigured warning.
+2. Confirm the JSON-defined `Decision`/`opportunity_id`/`repo` fields
+   render correctly in the live form UI with no further manual
+   reconfiguration required.
+3. Submit the form once with `Decision = reject` (or blank
+   `opportunity_id`/`repo`) and confirm the run dead-ends at "No Action
+   (Rejected)"; submit once with `Decision = approve` plus a real
+   `opportunity_id` and disposable demo `repo` and confirm the submitted
+   values reach "Build GitHub Issue Request" correctly -- these, plus the
+   round-1 approve-path GitHub-issue check, remain the required live
+   checks before Group 3 (or any real GitHub/Gemini call) begins.
+
+No real GitHub issue, no real Gemini call, and no live n8n execution
+occurred during this repair.

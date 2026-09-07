@@ -1168,3 +1168,104 @@ the live n8n instance**. Live re-import/re-test remains a required human
 verification step -- see `docs/agent-progress.md` Stage 15 for details. No
 real GitHub issue was created and no real Gemini call was made during this
 repair.
+
+## 2026-09-07 — Stage 15 Live Validation Round 2 + Human Approval Form Repair
+
+### Live validation results
+
+The HTTP-repaired workflow (commit `dccfaca`) was re-imported into the
+user's real self-hosted n8n Docker instance, on Windows:
+
+1. The Product Feedback Agent HTTP API (`src/product_feedback_agent/api.py`)
+   started successfully on the Windows host.
+2. `GET http://localhost:8000/health` returned `status=ok`.
+3. The repaired workflow JSON imported successfully into n8n (no import
+   errors).
+4. Both former Execute Command "?" nodes are now recognized, built-in
+   `n8n-nodes-base.httpRequest` nodes -- the Stage 15 HTTP-boundary repair
+   is confirmed live, not just statically tested.
+
+### Live finding
+
+One remaining compatibility issue was found: the "Human Review & Approval"
+node imported with **Page Type = Form Ending** instead of **Page Type =
+Next Form Page**. Form Ending is a terminal page type in the installed
+Form node and has no further outgoing connection slot in the n8n UI, so a
+node stuck on that page type would silently strand the human's decision
+before it ever reaches the Approval Gate. Manually switching the field to
+Next Form Page in the n8n UI exposed the installed node's page-mode
+options: Define Form ("Using Fields Below" / "Using JSON") and Form
+Elements.
+
+### Repair
+
+Updated only the "Human Review & Approval" node in
+`n8n/workflows/product-feedback-agent.json` to use the installed Form
+node's JSON-defined form mode instead of the UI field builder, so the
+approval form no longer needs manual reconfiguration on import:
+
+- `operation` changed from `"completion"` (Form Ending) to `"page"` (Next
+  Form Page).
+- `defineForm` set to `"json"` (Using JSON), with a `jsonOutput` string
+  defining exactly three fields, matching the installed node's actual JSON
+  field schema (`fieldLabel`/`fieldType`/`fieldOptions.values[].option`/
+  `requiredField`, the same shape already used by the pre-existing Intake
+  Form and Decision dropdown):
+  - `Decision` -- dropdown, options `approve`/`reject` (lowercase, unchanged),
+    required.
+  - `opportunity_id` -- text, required, placeholder explaining that one of
+    the 3 opportunity IDs shown in the summary must be supplied.
+  - `repo` -- text, required, placeholder `owner/repository`.
+- The opportunity summary (previously an inline `html` field) now renders
+  via `formDescription` (`={{ $json.summaryMarkdown }}`), since the JSON
+  field list itself is limited to exactly the three fields the downstream
+  Approval Gate reads.
+- The Approval Gate and "Build GitHub Issue Request" Code node were
+  updated to read the new, shorter submitted field names (`$json['Decision']`,
+  `$json['opportunity_id']`, `$json['repo']`) instead of the old
+  UI-builder field labels (`opportunity_id to act on (leave blank to
+  reject)`, `Target GitHub repo (owner/name)`). The safety gate itself is
+  unchanged: `Decision == "approve"` (case-sensitive) AND a non-blank
+  `opportunity_id` AND a non-blank `repo`, combined with `and`, still
+  required before the GitHub HTTP Request node is reachable.
+
+### Automated Test Result
+
+Command:
+
+`.\.venv\Scripts\python.exe -m pytest -q`
+
+Result:
+
+**301 / 301 tests passed**
+
+Breakdown:
+
+- `tests/test_n8n_workflow.py` grew from 19 to 28 tests (9 new): the Human
+  Review node's `operation` is `"page"` and not `"completion"`; `defineForm`
+  is `"json"`; the parsed `jsonOutput` contains exactly `Decision` (required
+  dropdown, options `{approve, reject}`), `opportunity_id` (required text),
+  and `repo` (required text, placeholder `owner/repository`), in that
+  order and no others; the Approval Gate's three conditions reference
+  exactly `$json['Decision']`, `$json['opportunity_id']`, `$json['repo']`;
+  "Build GitHub Issue Request" reads the same two submitted field names;
+  and the node's parameters contain no literal `"Form Ending"` string.
+- All 292 previously-passing tests remained passing, unmodified.
+- 0 failures, 0 errors.
+- `git diff --check` reported no whitespace errors.
+- No network, Gemini, or GitHub requests were made in the test suite. No
+  live n8n instance was reached during this repair -- it was applied
+  statically against the JSON file based on the live finding reported
+  above.
+
+### Status
+
+**Not yet fully re-verified live.** The JSON-level form repair has not
+been re-imported into the live n8n instance. One final live re-import is
+still required to confirm: the node now shows as Next Form Page (not Form
+Ending) on import, the JSON-defined `Decision`/`opportunity_id`/`repo`
+fields render correctly in the n8n form UI with no further manual
+reconfiguration, and a real approve/reject submission reaches the
+Approval Gate with the expected field values. No real GitHub issue was
+created and no real Gemini call was made during this repair. Group 3 has
+not been started.
