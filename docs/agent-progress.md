@@ -1404,9 +1404,6 @@ None. This proof is fully offline by design.
   form, the real created GitHub issue) vs. which are already better
   evidenced by committed test/evaluation output, without fabricating any
   screenshot.
-- `docs/portfolio-bullets.md` -- CV/portfolio bullets grounded only in what
-  was actually built and measured; no fabricated users, revenue, adoption,
-  or time-savings claims.
 - `docs/implementation-checklist.md` -- rewritten in clean UTF-8 (fixing a
   pre-existing mojibake encoding issue from an earlier save) and updated to
   reflect Stage 16/17/18 completion and the live Stage 15 GitHub issue.

@@ -187,7 +187,6 @@ which performs all of them internally, unmodified.
       `docs/results-log.md`)
 - [x] Document the screenshot/evidence plan (`docs/screenshots.md`)
 - [x] Write a concise demo script (`docs/demo-script.md`)
-- [x] Create evidence-based CV/portfolio bullets (`docs/portfolio-bullets.md`)
 - [x] Document limitations (README + `docs/architecture.md`)
 - [ ] Capture the actual screenshots listed in `docs/screenshots.md` (human
       action against the live n8n/GitHub UI, not something Claude Code can

@@ -331,40 +331,53 @@ CONTRACT, HUMAN APPROVAL MODEL.
 
 ## 19. Local Setup / Run Instructions
 
+Requires Python 3.12 or newer. The `dev` extra installs pytest.
+
+macOS / Linux:
+
+```
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env   # then fill in GEMINI_API_KEY (required for real runs)
+```
+
+Windows (PowerShell):
+
 ```
 python -m venv .venv
-.\.venv\Scripts\pip install -e .
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
 copy .env.example .env   # then fill in GEMINI_API_KEY (required for real runs)
 ```
+
+The commands below assume the virtual environment is activated and work
+the same on every platform.
 
 Run the offline test suite (no live Gemini/GitHub calls):
 
 ```
-.\.venv\Scripts\python.exe -m pytest -q
+python -m pytest -q
 ```
 
 Run the deterministic evaluation suite:
 
 ```
-.\.venv\Scripts\python.exe -m eval.run_evaluation
+python -m eval.run_evaluation
 ```
 
 Run one real analysis from the CLI (requires `GEMINI_API_KEY`; prints the
 structured result to stdout, a human-review notice to stderr, and takes no
-GitHub action):
+GitHub action). Shown on one line so it pastes into any shell:
 
 ```
-.\.venv\Scripts\python.exe -m product_feedback_agent.orchestrator ^
-  --feedback-file data\samples\feedback_sample.csv ^
-  --context-file data\samples\roadmap.md ^
-  --context-file data\samples\product_strategy.md ^
-  --query "search result filtering friction"
+python -m product_feedback_agent.orchestrator --feedback-file data/samples/feedback_sample.csv --context-file data/samples/roadmap.md --context-file data/samples/product_strategy.md --query "search result filtering friction"
 ```
 
 Start the local HTTP service (for n8n, or manual `curl`/Postman testing):
 
 ```
-.\.venv\Scripts\python.exe -m product_feedback_agent.api
+python -m product_feedback_agent.api
 ```
 
 Full n8n setup (Docker instance, `host.docker.internal` addressing,
@@ -418,7 +431,6 @@ docs/                         # decisions, results log, architecture, demo, etc.
 - [docs/n8n-setup.md](docs/n8n-setup.md) -- n8n workflow setup guide
 - [docs/demo-script.md](docs/demo-script.md) -- portfolio demo script
 - [docs/screenshots.md](docs/screenshots.md) -- screenshot/evidence plan
-- [docs/portfolio-bullets.md](docs/portfolio-bullets.md) -- CV bullets
 - [eval/evaluation_report.md](eval/evaluation_report.md) -- measured
   evaluation results
 
